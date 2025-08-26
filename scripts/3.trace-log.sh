@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NAMESPACE=ai-storage
+NAMESPACE=orchestration
 COMPONENT=ai-storage-scheduler
 
 while [ -z "$PODNAME" ]

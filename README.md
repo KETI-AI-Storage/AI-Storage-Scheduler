@@ -1,7 +1,6 @@
-# Introduction of Deployment for AI Storage API Server
+# Introduction of Deployment for AI Storage Scheduler
 -------------
-
-This is yaml files and scripts for ai-storage-api-server deployment.
+AI Storage Scheduler for feature classification and learning-based, policy-driven scheduling
 
 Developed by KETI
 
@@ -49,11 +48,11 @@ git clone https://github.com/KETI-AI-Storage/AI-Storage-API-Server.git
 cd AI-Storage-API-Server
 ```
 
-### OpenCSD API Server
+### OpenCSD AI Storage Scheduler
 -
 ```bash
 -
 ```
 
-## Governance
-his work was supported by Institute of Information & communications Technology Planning & Evaluation (IITP) grant funded by the Korea government(MSIT) (No.2021-0-00862, Development of DBMS storage engine technology to minimize massive data movement)
+## Acknowledgements
+This work was supported by the Institute of Information & Communications Technology Planning & Evaluation(IITP) grant funded by the Korea government(MSIT) (No.RS-2024-00461572, Development of High-efficiency Parallel Storage SW Technology Oprimized for AI Computational Accelerators)

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-storage-scheduler-svc
+  namespace: orchestration
+  labels:
+    name: ai-storage-scheduler
+    namespace: orchestration
+spec:
+  type: NodePort
+  ports:
+    - port: 40000
+      targetPort: 40000
+      nodePort: 30000
+      protocol: TCP
+  selector:
+    name: ai-storage-scheduler
+    namespace: orchestration
