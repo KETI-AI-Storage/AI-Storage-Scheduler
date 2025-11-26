@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -17,6 +18,7 @@ type NodeInfo struct {
 	ImageStates                  map[string]*ImageStateSummary
 	PVCRefCounts                 map[string]int
 	GPUMap                       map[string]GPUInfo
+	GPUMetricsUpdatedAt          time.Time
 }
 
 func NewNodeInfo(pods ...*corev1.Pod) *NodeInfo {

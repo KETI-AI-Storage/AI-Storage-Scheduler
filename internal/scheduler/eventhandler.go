@@ -102,6 +102,9 @@ func (sched *Scheduler) addNodeToCache(obj any) {
 		klog.ErrorS(nil, "cannot add node [", node.Name, "]")
 	}
 
+	// Fetch GPU metrics for new node (async)
+	go sched.fetchNodeGPUMetrics(node.Name)
+
 	sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue()
 }
 
@@ -122,6 +125,9 @@ func (sched *Scheduler) updateNodeInCache(oldObj, newObj any) {
 	if err != nil {
 		klog.ErrorS(nil, "cannot Update Node [", newNode.Name, "]")
 	}
+
+	// Update GPU metrics for changed node (async)
+	go sched.fetchNodeGPUMetrics(newNode.Name)
 
 	// Only requeue unschedulable pods if the node became more schedulable.
 	event := NodeSchedulingPropertiesChange(newNode, oldNode)
@@ -160,6 +166,14 @@ func (sched *Scheduler) deleteNodeFromCache(obj any) {
 
 func (sched *Scheduler) addPodToSchedulingQueue(obj any) {
 	pod := obj.(*v1.Pod)
+	gpuRequest := "none"
+	if len(pod.Spec.Containers) > 0 {
+		if gpu, ok := pod.Spec.Containers[0].Resources.Requests["nvidia.com/gpu"]; ok {
+			gpuRequest = gpu.String()
+		}
+	}
+	logger.Info(fmt.Sprintf("[event] add pod {%s/%s} to scheduling queue (GPU: %s)\n",
+		pod.Namespace, pod.Name, gpuRequest))
 	sched.SchedulingQueue.Add(pod)
 }
 
@@ -271,6 +285,6 @@ func assignedPod(pod *v1.Pod) bool {
 
 // responsibleForPod returns true if the pod has asked to be scheduled by the given scheduler.
 func responsibleForPod(pod *v1.Pod) bool {
-	responsibleForPod := (pod.Spec.SchedulerName == "ai-storage-sheduler")
+	responsibleForPod := (pod.Spec.SchedulerName == "ai-storage-scheduler")
 	return responsibleForPod
 }

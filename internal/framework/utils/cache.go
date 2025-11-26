@@ -31,6 +31,7 @@ func NewCache(ctx context.Context) *Cache {
 		stop:               ctx.Done(),
 		nodes:              make(map[string]*NodeInfo),
 		podStates:          make(map[string]*podState),
+		assumedPods:        sets.New[string](),
 		imageStates:        make(map[string]*ImageStateSummary),
 		totalNodeCount:     0,
 		availableNodeCount: 0,
@@ -384,4 +385,29 @@ type ImageStateSummary struct {
 
 func NewImageStateSummary() *ImageStateSummary {
 	return &ImageStateSummary{}
+}
+
+// UpdateNodeGPUMetrics updates GPU metrics for a specific node
+// TODO: Implement actual GPU metrics update logic
+func (cache *Cache) UpdateNodeGPUMetrics(nodeName string, gpuMetrics interface{}) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	nodeInfo, ok := cache.nodes[nodeName]
+	if !ok {
+		return fmt.Errorf("node %s not found in cache", nodeName)
+	}
+
+	// TODO: Update GPUMap with actual GPU metrics
+	// Example:
+	// if gpuMetrics != nil {
+	//     for gpuID, gpuInfo := range gpuMetrics {
+	//         nodeInfo.GPUMap[gpuID] = gpuInfo
+	//     }
+	// }
+
+	// Update timestamp
+	nodeInfo.GPUMetricsUpdatedAt = time.Now()
+
+	return nil
 }

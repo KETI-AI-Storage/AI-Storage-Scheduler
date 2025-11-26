@@ -1,25 +1,59 @@
+#!/usr/bin/env bash
+
 registry="ketidevit2"
-image_name="ai-storage-scheduler"
-version="v0.0.1"
+image_name="keti-ai-storage-scheduler"
+version="latest"
 dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-#latest golang
-# export PATH=$PATH:/usr/local/go/bin && \
-# go mod init keti/$image_name
-# go mod vendor
-# go mod tidy
+echo "================================"
+echo "Building AI Storage Scheduler"
+echo "Registry: $registry"
+echo "Image: $image_name:$version"
+echo "================================"
 
-# build binary file
-go build -o "$dir/../build/_output/bin/$image_name" -mod=vendor "$dir/../cmd/main.go"
+# Create build directory if not exists
+mkdir -p "$dir/../build/_output/bin"
 
-# make image (Dockerfile must be in build/)
-docker build -t $image_name:$version "$dir/../build"
+# Build static binary for Linux
+echo "Building Go binary..."
+cd "$dir/.." || exit 1
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s" \
+    -o "$dir/../build/_output/bin/ai-storage-scheduler" \
+    "$dir/../cmd/main.go"
 
-# add tag
-docker tag $image_name:$version $registry/$image_name:$version 
+if [ $? -ne 0 ]; then
+    echo "Error: Go build failed"
+    exit 1
+fi
 
-# login
-docker login 
+echo "Binary built successfully"
 
-# push image
-docker push $registry/$image_name:$version 
+# Build Docker image
+echo "Building Docker image..."
+docker build -t "$image_name:$version" "$dir/../build"
+
+if [ $? -ne 0 ]; then
+    echo "Error: Docker build failed"
+    exit 1
+fi
+
+echo "Docker image built successfully"
+
+# Tag image
+echo "Tagging image..."
+docker tag "$image_name:$version" "$registry/$image_name:$version"
+
+# Push image
+echo "Pushing image to registry..."
+docker push "$registry/$image_name:$version"
+
+if [ $? -ne 0 ]; then
+    echo "Error: Docker push failed"
+    exit 1
+fi
+
+echo "================================"
+echo "Build and push completed successfully!"
+echo "Image: $registry/$image_name:$version"
+echo "================================"

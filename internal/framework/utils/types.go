@@ -3,6 +3,7 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
@@ -231,4 +232,9 @@ func GetPodKey(pod *v1.Pod) (string, error) {
 		return "", errors.New("cannot get cache key for pod with empty UID")
 	}
 	return uid, nil
+}
+
+// GetCurrentTimeMillis returns current time in milliseconds
+func GetCurrentTimeMillis() int64 {
+	return time.Now().UnixMilli()
 }

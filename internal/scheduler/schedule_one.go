@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	internalqueue "keti/ai-storage-scheduler/internal/backend/queue"
@@ -62,11 +63,9 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 }
 
 func (sched *Scheduler) frameworkForPod(pod *v1.Pod) (framework.Framework, error) {
-	var fwk framework.Framework
-
-	// 파드 특성별로 스케줄링 플러그인 지정
-
-	return fwk, nil
+	// For now, return the default framework
+	// In the future, you can select different frameworks based on pod characteristics
+	return sched.fwk, nil
 }
 
 var clearNominatedNode = &NominatingInfo{NominatingMode: ModeOverride, NominatedNodeName: ""}
@@ -157,6 +156,12 @@ func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework
 		return result, ErrNoNodesAvailable
 	}
 
+	// Refresh stale GPU metrics if pod requests GPU
+	if hasGPURequest(pod) {
+		// Refresh metrics older than 60 seconds (60000 milliseconds)
+		sched.refreshStaleGPUMetrics(ctx, 60000)
+	}
+
 	nodes := sched.Cache.Nodes()
 	if nodes == nil {
 		// 에러처리
@@ -190,14 +195,77 @@ func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework
 }
 
 func (sched *Scheduler) runFilterPlugin(ctx context.Context, fwk framework.Framework, pod *v1.Pod, scheduleResult *ScheduleResult) error {
+	nodes := sched.Cache.Nodes()
+	feasibleNodes := 0
+
+	for nodeName, nodeInfo := range nodes {
+		pluginResults := fwk.RunFilterPlugins(ctx, pod, nodeInfo)
+
+		if pr, exists := pluginResults[nodeName]; exists {
+			existingResult := scheduleResult.PluginResultMap[nodeName]
+			existingResult.IsFiltered = pr.IsFiltered
+			scheduleResult.PluginResultMap[nodeName] = existingResult
+
+			if !pr.IsFiltered {
+				feasibleNodes++
+			}
+		}
+	}
+
+	scheduleResult.FeasibleNodes = feasibleNodes
 	return nil
 }
 
 func (sched *Scheduler) runScorePlugin(ctx context.Context, fwk framework.Framework, pod *v1.Pod, scheduleResult *ScheduleResult) error {
+	// Get list of feasible nodes
+	feasibleNodes := []*v1.Node{}
+	for nodeName, pr := range scheduleResult.PluginResultMap {
+		if !pr.IsFiltered {
+			if nodeInfo := sched.Cache.Nodes()[nodeName]; nodeInfo != nil && nodeInfo.Node() != nil {
+				feasibleNodes = append(feasibleNodes, nodeInfo.Node())
+			}
+		}
+	}
+
+	if len(feasibleNodes) == 0 {
+		return fmt.Errorf("no feasible nodes")
+	}
+
+	// Run score plugins
+	scores, status := fwk.RunScorePlugins(ctx, pod, feasibleNodes)
+	if !status.IsSuccess() {
+		return fmt.Errorf("scoring failed: %s", status.Message())
+	}
+
+	// Merge scores into scheduleResult
+	for nodeName, score := range scores {
+		if existing, ok := scheduleResult.PluginResultMap[nodeName]; ok {
+			existing.Scores = score.Scores
+			existing.TotalNodeScore = score.TotalNodeScore
+			scheduleResult.PluginResultMap[nodeName] = existing
+		}
+	}
+
 	return nil
 }
 
 func (sched *Scheduler) selectResource(pod *v1.Pod, scheduleResult *ScheduleResult) error {
+	// Select the node with the highest score
+	var bestNode string
+	var bestScore int = -1
+
+	for nodeName, pr := range scheduleResult.PluginResultMap {
+		if !pr.IsFiltered && pr.TotalNodeScore > bestScore {
+			bestScore = pr.TotalNodeScore
+			bestNode = nodeName
+		}
+	}
+
+	if bestNode == "" {
+		return fmt.Errorf("no suitable node found")
+	}
+
+	scheduleResult.SuggestedHost = bestNode
 	return nil
 }
 
@@ -206,7 +274,11 @@ func (sched *Scheduler) runBindPlugin(ctx context.Context, fwk framework.Framewo
 		sched.finishBinding(fwk, assumed, scheduleResult.SuggestedHost)
 	}()
 
-	// binding 수행
+	// Run bind plugin
+	status := fwk.RunBindPlugin(ctx, assumed, scheduleResult.SuggestedHost)
+	if !status.IsSuccess() {
+		return fmt.Errorf("binding failed: %s", status.Message())
+	}
 
 	return nil
 }
@@ -219,4 +291,17 @@ func (sched *Scheduler) finishBinding(fwk framework.Framework, assumed *v1.Pod, 
 	// 	// logger.V(1).Info("Failed to bind pod", "pod", klog.KObj(assumed))
 	// 	return
 	// }
+}
+
+// hasGPURequest checks if a pod requests GPU resources
+func hasGPURequest(pod *v1.Pod) bool {
+	for _, container := range pod.Spec.Containers {
+		if _, ok := container.Resources.Requests["nvidia.com/gpu"]; ok {
+			return true
+		}
+		if _, ok := container.Resources.Limits["nvidia.com/gpu"]; ok {
+			return true
+		}
+	}
+	return false
 }

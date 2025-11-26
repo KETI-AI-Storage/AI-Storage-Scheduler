@@ -16,6 +16,9 @@ import (
 func main() {
 	var err error
 
+	// 0. initialize logger
+	logger.Init(logger.NewDefaultConfig())
+
 	// 1. generate config
 	config := config.CreateDefaultConfig()
 

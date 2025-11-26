@@ -4,6 +4,8 @@ import (
 	"os"
 
 	logger "keti/ai-storage-scheduler/internal/backend/log"
+	framework "keti/ai-storage-scheduler/internal/framework"
+	"keti/ai-storage-scheduler/internal/framework/plugin"
 
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -13,7 +15,7 @@ import (
 type SchedulerConfig struct {
 	HostKubeClient  *kubernetes.Clientset
 	InformerFactory informers.SharedInformerFactory
-	// Other Scheduling Configs...
+	Framework       framework.Framework
 }
 
 func CreateDefaultConfig() *SchedulerConfig {
@@ -26,10 +28,23 @@ func CreateDefaultConfig() *SchedulerConfig {
 
 	informerFactory := informers.NewSharedInformerFactory(hostKubeClient, 0)
 
+	// Initialize plugins
+	filterPlugins := []framework.FilterPlugin{
+		plugin.NewNodeResourcesFit(),
+	}
+
+	scorePlugins := []framework.ScorePlugin{
+		plugin.NewLeastAllocated(),
+	}
+
+	bindPlugin := plugin.NewDefaultBinder(hostKubeClient)
+
+	// Create framework
+	fwk := framework.NewFramework(filterPlugins, scorePlugins, bindPlugin)
+
 	return &SchedulerConfig{
 		InformerFactory: informerFactory,
 		HostKubeClient:  hostKubeClient,
+		Framework:       fwk,
 	}
 }
-
-// Scheduler Config 파일 업데이트 혹은 읽는
