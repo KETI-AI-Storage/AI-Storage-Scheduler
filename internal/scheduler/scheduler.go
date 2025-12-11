@@ -76,7 +76,7 @@ type NominatingInfo struct {
 
 func NewScheduler(ctx context.Context, cc *config.SchedulerConfig) (*Scheduler, error) {
 	stopEverything := ctx.Done()
-	schedulerCache := utils.NewCache(ctx)
+	schedulerCache := cc.Cache
 	podQueue := internalqueue.NewSchedulingQueue(internalqueue.Less, cc.InformerFactory)
 	logger := logger.NewLogger(logger.NewDefaultConfig())
 
