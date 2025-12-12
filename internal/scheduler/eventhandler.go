@@ -26,10 +26,8 @@ func AddAllEventHandlers(
 					if _, ok := t.Obj.(*v1.Pod); ok {
 						return true
 					}
-					// logger.Warn(fmt.Sprintf("[error] unable to convert object %T to *v1.Pod in %T\n", obj, sched))
 					return false
 				default:
-					// logger.Warn(fmt.Sprintf("[error] unable to handle object in %T: %T\n", sched, obj))
 					return false
 				}
 			},
@@ -51,7 +49,7 @@ func AddAllEventHandlers(
 				case cache.DeletedFinalStateUnknown:
 					return false
 				default:
-					logger.Warn(fmt.Sprintf("[error] unable to handle object in %T: %T\n", sched, obj))
+					logger.Warn("[error] unable to handle object", "type", fmt.Sprintf("%T", obj))
 					return false
 				}
 			},
@@ -73,7 +71,7 @@ func AddAllEventHandlers(
 				case cache.DeletedFinalStateUnknown:
 					return false
 				default:
-					logger.Warn(fmt.Sprintf("[error] unable to handle object in %T: %T\n", sched, obj))
+					logger.Warn("[error] unable to handle object", "type", fmt.Sprintf("%T", obj))
 					return false
 				}
 			},
@@ -91,15 +89,15 @@ func AddAllEventHandlers(
 func (sched *Scheduler) addNodeToCache(obj any) {
 	node, ok := obj.(*v1.Node)
 	if !ok {
-		logger.Warn(fmt.Sprintf("[error] cannot convert to *v1.Node -> %+v", obj))
+		logger.Warn("[error] cannot convert to *v1.Node", "obj", obj)
 		return
 	}
 
-	logger.Info(fmt.Sprintf("[event] add new node {%s} to cache\n", node.Name))
+	logger.Info("[event] add new node to cache", "node", node.Name)
 
 	err := sched.Cache.AddNode(node, sched.schedulerConfig.HostKubeClient)
 	if err != nil {
-		klog.ErrorS(nil, "cannot add node [", node.Name, "]")
+		logger.Error("[error] cannot add node to cache", err, "node", node.Name)
 	}
 
 	// Fetch GPU metrics for new node (async)
@@ -123,7 +121,7 @@ func (sched *Scheduler) updateNodeInCache(oldObj, newObj any) {
 
 	err := sched.Cache.UpdateNode(oldNode, newNode)
 	if err != nil {
-		klog.ErrorS(nil, "cannot Update Node [", newNode.Name, "]")
+		logger.Error("[error] cannot update node in cache", err, "node", newNode.Name)
 	}
 
 	// Update GPU metrics for changed node (async)
@@ -149,18 +147,14 @@ func (sched *Scheduler) deleteNodeFromCache(obj any) {
 		var ok bool
 		node, ok = t.Obj.(*v1.Node)
 		if !ok {
-			// logger.Error(nil, "Cannot convert to *v1.Node", "obj", t.Obj)
 			return
 		}
 	default:
-		// logger.Error(nil, "Cannot convert to *v1.Node", "obj", t)
 		return
 	}
 
-	// sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue()
-
 	if err := sched.Cache.RemoveNode(node); err != nil {
-		// logger.Error(err, "Scheduler cache RemoveNode failed")
+		logger.Error("[error] scheduler cache RemoveNode failed", err, "node", node.Name)
 	}
 }
 
@@ -172,8 +166,8 @@ func (sched *Scheduler) addPodToSchedulingQueue(obj any) {
 			gpuRequest = gpu.String()
 		}
 	}
-	logger.Info(fmt.Sprintf("[event] add pod {%s/%s} to scheduling queue (GPU: %s)\n",
-		pod.Namespace, pod.Name, gpuRequest))
+	logger.Info("[event] add pod to scheduling queue",
+		"namespace", pod.Namespace, "pod", pod.Name, "gpu", gpuRequest)
 	sched.SchedulingQueue.Add(pod)
 }
 
@@ -185,14 +179,16 @@ func (sched *Scheduler) updatePodInSchedulingQueue(oldObj, newObj any) {
 
 	isAssumed, err := sched.Cache.IsAssumedPod(newPod)
 	if err != nil {
-		// utilruntime.HandleError(fmt.Errorf("failed to check whether pod %s/%s is assumed: %v", newPod.Namespace, newPod.Name, err))
+		logger.Warn("[error] failed to check whether pod is assumed", 
+			"namespace", newPod.Namespace, "pod", newPod.Name, "error", err.Error())
 	}
 	if isAssumed {
 		return
 	}
 
 	if err := sched.SchedulingQueue.Update(oldPod, newPod); err != nil {
-		logger.Warn(fmt.Sprintf("[error] unable to update %T: %v\n", newObj, err))
+		logger.Warn("[error] unable to update pod in scheduling queue", 
+			"namespace", newPod.Namespace, "pod", newPod.Name, "error", err.Error())
 	}
 }
 
@@ -205,51 +201,45 @@ func (sched *Scheduler) deletePodFromSchedulingQueue(obj any) {
 		var ok bool
 		pod, ok = t.Obj.(*v1.Pod)
 		if !ok {
-			logger.Warn(fmt.Sprintf("[error] unable to convert object %T to *v1.Pod in %T\n", obj, sched))
+			logger.Warn("[error] unable to convert object to *v1.Pod", "obj", obj)
 			return
 		}
 	default:
-		logger.Warn(fmt.Sprintf("[error] unable to handle object in %T: %T\n", sched, obj))
+		logger.Warn("[error] unable to handle object", "type", fmt.Sprintf("%T", obj))
 		return
 	}
 
 	if err := sched.SchedulingQueue.Delete(pod); err != nil {
-		logger.Warn(fmt.Sprintf("[error] unable to dequeue %T: %v\n", obj, err))
+		logger.Warn("[error] unable to dequeue pod", 
+			"namespace", pod.Namespace, "pod", pod.Name, "error", err.Error())
 	}
-
-	// if fwk.RejectWaitingPod(pod.UID) {
-	// 	sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(logger, framework.EventAssignedPodDelete, pod, nil, nil)
-	// }
 }
 
 func (sched *Scheduler) addPodToCache(obj any) {
 	pod, ok := obj.(*v1.Pod)
 	if !ok {
-		// logger.Error(nil, "Cannot convert to *v1.Pod", "obj", obj)
 		return
 	}
 
 	if err := sched.Cache.AddPod(pod); err != nil {
-		// logger.Error(err, "Scheduler cache AddPod failed", "pod", klog.KObj(pod))
+		logger.Error("[error] scheduler cache AddPod failed", err, 
+			"namespace", pod.Namespace, "pod", pod.Name)
 	}
-
-	// sched.SchedulingQueue.AssignedPodAdded(pod)
 }
 
 func (sched *Scheduler) updatePodInCache(oldObj, newObj any) {
 	oldPod, ok := oldObj.(*v1.Pod)
 	if !ok {
-		// logger.Error(nil, "Cannot convert oldObj to *v1.Pod", "oldObj", oldObj)
 		return
 	}
 	newPod, ok := newObj.(*v1.Pod)
 	if !ok {
-		// logger.Error(nil, "Cannot convert newObj to *v1.Pod", "newObj", newObj)
 		return
 	}
 
 	if err := sched.Cache.UpdatePod(oldPod, newPod); err != nil {
-		// logger.Error(err, "Scheduler cache UpdatePod failed", "pod", klog.KObj(oldPod))
+		logger.Error("[error] scheduler cache UpdatePod failed", err,
+			"namespace", oldPod.Namespace, "pod", oldPod.Name)
 	}
 }
 
@@ -262,20 +252,18 @@ func (sched *Scheduler) deletePodFromCache(obj any) {
 		var ok bool
 		pod, ok = t.Obj.(*v1.Pod)
 		if !ok {
-			logger.Warn(fmt.Sprintf("cannot convert to *v1.Pod -> %+v", t.Obj))
+			logger.Warn("[error] cannot convert to *v1.Pod", "obj", t.Obj)
 			return
 		}
 	default:
-		logger.Warn(fmt.Sprintf("cannot convert to *v1.Pod -> %+v", t))
+		logger.Warn("[error] cannot convert to *v1.Pod", "obj", t)
 		return
 	}
 
-	logger.Info(fmt.Sprintf("[event] delete pod {%s} from cache\n", pod.Name))
+	logger.Info("[event] delete pod from cache", "namespace", pod.Namespace, "pod", pod.Name)
 	if err := sched.Cache.RemovePod(pod); err != nil {
 		klog.ErrorS(err, "[error] scheduler cache remove pod failed", "pod", klog.KObj(pod))
 	}
-
-	// sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue
 }
 
 // assignedPod selects pods that are assigned (scheduled and running).

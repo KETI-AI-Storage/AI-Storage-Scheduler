@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-deployment
+  namespace: keti
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gpu-app
+  template:
+    metadata:
+      labels:
+        app: gpu-app
+    spec:
+      schedulerName: ai-storage-scheduler
+      restartPolicy: Always
+      containers:
+      - name: gpu-container
+        image: busybox:latest
+        command: ["sh", "-c", "while true; do echo 'Running on:' $(cat /etc/hostname); sleep 30; done"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+            nvidia.com/gpu: "1"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+            nvidia.com/gpu: "1"

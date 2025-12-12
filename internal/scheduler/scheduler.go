@@ -150,7 +150,7 @@ func (sched *Scheduler) Run(ctx context.Context) {
 // fetchNodeGPUMetrics fetches GPU metrics for a specific node
 // TODO: Implement actual gRPC call to fetch GPU metrics
 func (sched *Scheduler) fetchNodeGPUMetrics(nodeName string) {
-	logger.Info(fmt.Sprintf("[gpu-metrics] Fetching GPU metrics for node: %s", nodeName))
+	logger.Info("[gpu-metrics] Fetching GPU metrics for node", "node", nodeName)
 
 	// TODO: Call gRPC service to get GPU metrics
 	// Example:
@@ -177,7 +177,7 @@ func (sched *Scheduler) refreshStaleGPUMetrics(ctx context.Context, maxAge int64
 		// Check if GPU metrics are stale
 		metricsAge := currentTime - nodeInfo.GPUMetricsUpdatedAt.UnixMilli()
 		if metricsAge > maxAge {
-			logger.Info(fmt.Sprintf("[gpu-metrics] Refreshing stale GPU metrics for node: %s (age: %dms)", nodeName, metricsAge))
+			logger.Info("[gpu-metrics] Refreshing stale GPU metrics", "node", nodeName, "age_ms", metricsAge)
 			sched.fetchNodeGPUMetrics(nodeName)
 		}
 	}
