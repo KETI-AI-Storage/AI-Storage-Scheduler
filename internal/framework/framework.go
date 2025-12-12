@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	logger "keti/ai-storage-scheduler/internal/backend/log"
 	utils "keti/ai-storage-scheduler/internal/framework/utils"
 
 	v1 "k8s.io/api/core/v1"
@@ -37,16 +38,18 @@ func (f *frameworkImpl) RunFilterPlugins(ctx context.Context, pod *v1.Pod, nodeI
 
 	// Initialize result for this node
 	result[nodeName] = utils.PluginResult{
-		IsFiltered: false,
-		Scores:     []utils.PluginScore{},
+		IsFiltered:   false,
+		Scores:       []utils.PluginScore{},
+		FilterReason: "",
 	}
 
 	// Run all filter plugins
 	for _, plugin := range f.filterPlugins {
 		status := plugin.Filter(ctx, pod, nodeInfo)
+		
 		if !status.IsSuccess() {
-			klog.V(4).InfoS("Pod failed filter",
-				"pod", klog.KObj(pod),
+			logger.Info("[filter-plugin] Node filtered out",
+				"namespace", pod.Namespace, "pod", pod.Name,
 				"node", nodeName,
 				"plugin", plugin.Name(),
 				"reason", status.Message())
@@ -54,10 +57,20 @@ func (f *frameworkImpl) RunFilterPlugins(ctx context.Context, pod *v1.Pod, nodeI
 			// Mark node as filtered out
 			pluginResult := result[nodeName]
 			pluginResult.IsFiltered = true
+			pluginResult.FilterReason = fmt.Sprintf("%s: %s", plugin.Name(), status.Message())
 			result[nodeName] = pluginResult
 			return result
+		} else {
+			logger.Debug("[filter-plugin] Node passed filter",
+				"namespace", pod.Namespace, "pod", pod.Name,
+				"node", nodeName,
+				"plugin", plugin.Name())
 		}
 	}
+
+	logger.Info("[filter-plugin] Node passed all filters",
+		"namespace", pod.Namespace, "pod", pod.Name,
+		"node", nodeName)
 
 	return result
 }
@@ -76,9 +89,19 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, pod *v1.Pod, nodes 
 
 	// Run all score plugins
 	for _, plugin := range f.scorePlugins {
+		logger.Info("[score-plugin] Running score plugin",
+			"namespace", pod.Namespace, "pod", pod.Name,
+			"plugin", plugin.Name(),
+			"node_count", len(nodes))
+		
 		for _, node := range nodes {
 			score, status := plugin.Score(ctx, pod, node.Name)
 			if !status.IsSuccess() {
+				logger.Error("[score-plugin] Scoring failed", 
+					fmt.Errorf(status.Message()),
+					"namespace", pod.Namespace, "pod", pod.Name,
+					"plugin", plugin.Name(),
+					"node", node.Name)
 				return nil, status
 			}
 
@@ -90,8 +113,8 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, pod *v1.Pod, nodes 
 			pluginResult.TotalNodeScore += int(score)
 			result[node.Name] = pluginResult
 
-			klog.V(4).InfoS("Plugin scored node",
-				"pod", klog.KObj(pod),
+			logger.Info("[score-plugin] Node scored",
+				"namespace", pod.Namespace, "pod", pod.Name,
 				"plugin", plugin.Name(),
 				"node", node.Name,
 				"score", score)
@@ -106,8 +129,8 @@ func (f *frameworkImpl) RunBindPlugin(ctx context.Context, pod *v1.Pod, nodeName
 		return utils.NewStatus(utils.Error, "no bind plugin configured")
 	}
 
-	klog.V(3).InfoS("Binding pod to node",
-		"pod", klog.KObj(pod),
+	logger.Info("[bind-plugin] Starting bind",
+		"namespace", pod.Namespace, "pod", pod.Name,
 		"node", nodeName,
 		"plugin", f.bindPlugin.Name())
 
@@ -119,8 +142,8 @@ func (f *frameworkImpl) RunBindPlugin(ctx context.Context, pod *v1.Pod, nodeName
 		return status
 	}
 
-	klog.V(2).InfoS("Successfully bound pod to node",
-		"pod", klog.KObj(pod),
+	logger.Info("[bind-plugin] Successfully bound pod to node",
+		"namespace", pod.Namespace, "pod", pod.Name,
 		"node", nodeName)
 
 	return utils.NewStatus(utils.Success, "")

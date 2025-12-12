@@ -21,6 +21,7 @@ type PluginResult struct {
 	TotalGPUScore     int
 	FinalScore        int
 	BestGPU           string
+	FilterReason      string
 }
 
 type GPUScore struct {
