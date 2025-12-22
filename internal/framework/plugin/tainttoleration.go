@@ -14,13 +14,19 @@ import (
 const TaintTolerationName = "TaintToleration"
 
 // TaintToleration is a plugin that checks if a pod tolerates a node's taints.
-type TaintToleration struct{}
+type TaintToleration struct {
+	cache *utils.Cache
+}
 
 var _ framework.FilterPlugin = &TaintToleration{}
 var _ framework.ScorePlugin = &TaintToleration{}
 
 func NewTaintToleration() *TaintToleration {
 	return &TaintToleration{}
+}
+
+func NewTaintTolerationWithCache(cache *utils.Cache) *TaintToleration {
+	return &TaintToleration{cache: cache}
 }
 
 func (t *TaintToleration) Name() string {
@@ -37,7 +43,7 @@ func (t *TaintToleration) Filter(ctx context.Context, pod *v1.Pod, nodeInfo *uti
 
 	// Get all taints that are not tolerated by the pod
 	filterPredicate := func(taint *v1.Taint) bool {
-		// Only consider NoSchedule and NoExecute taints
+		// Only consider NoSchedule and NoExecute taints for filtering
 		return taint.Effect == v1.TaintEffectNoSchedule || taint.Effect == v1.TaintEffectNoExecute
 	}
 
@@ -50,9 +56,51 @@ func (t *TaintToleration) Filter(ctx context.Context, pod *v1.Pod, nodeInfo *uti
 		fmt.Sprintf("node(s) had untolerated taint {%s: %s}", taint.Key, taint.Effect))
 }
 
-// Score gives a higher score to nodes with fewer taints that the pod doesn't tolerate
+// Score gives a higher score to nodes with fewer PreferNoSchedule taints that the pod doesn't tolerate
 func (t *TaintToleration) Score(ctx context.Context, pod *v1.Pod, nodeName string) (int64, *utils.Status) {
-	return 0, utils.NewStatus(utils.Success, "")
+	// Get node info from cache
+	var nodeInfo *utils.NodeInfo
+	if t.cache != nil {
+		nodeInfo = t.cache.Nodes()[nodeName]
+	}
+
+	if nodeInfo == nil || nodeInfo.Node() == nil {
+		// If no cache available, return neutral score
+		return 0, utils.NewStatus(utils.Success, "")
+	}
+
+	node := nodeInfo.Node()
+	tolerations := pod.Spec.Tolerations
+
+	// Count untolerated PreferNoSchedule taints
+	untoleratedCount := 0
+	for _, taint := range node.Spec.Taints {
+		if taint.Effect != v1.TaintEffectPreferNoSchedule {
+			continue
+		}
+
+		tolerated := false
+		for _, toleration := range tolerations {
+			if toleration.ToleratesTaint(&taint) {
+				tolerated = true
+				break
+			}
+		}
+
+		if !tolerated {
+			untoleratedCount++
+		}
+	}
+
+	// Score: fewer untolerated taints = higher score
+	// Max score of 100 with 0 untolerated taints
+	// Decrease by 10 for each untolerated taint
+	score := int64(100 - untoleratedCount*10)
+	if score < 0 {
+		score = 0
+	}
+
+	return score, utils.NewStatus(utils.Success, "")
 }
 
 func (t *TaintToleration) ScoreExtensions() framework.ScoreExtensions {

@@ -60,8 +60,8 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 
 		status := sched.bindingCycle(bindingCycleCtx, fwk, scheduleResult, assumedPodInfo, start)
 		if !status.IsSuccess() {
-			logger.Error("[scheduling] Binding cycle failed", 
-				fmt.Errorf(status.Message()),
+			logger.Error("[scheduling] Binding cycle failed",
+				fmt.Errorf("%s", status.Message()),
 				"namespace", pod.Namespace, "pod", pod.Name)
 			return
 		}

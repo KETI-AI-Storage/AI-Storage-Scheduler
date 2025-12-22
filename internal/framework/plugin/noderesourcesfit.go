@@ -71,10 +71,7 @@ func (n *NodeResourcesFit) Filter(ctx context.Context, pod *v1.Pod, nodeInfo *ut
 			}
 
 			// Get already allocated amount of this extended resource
-			allocatedQuantity := int64(0)
-			if allocated.ScalarResources != nil {
-				allocatedQuantity = allocated.ScalarResources[resourceName]
-			}
+			allocatedQuantity := allocated.ScalarResources[resourceName]
 			availableQuantity := allocatableQuantity.Value() - allocatedQuantity
 
 			if requestedQuantity.Value() > availableQuantity {

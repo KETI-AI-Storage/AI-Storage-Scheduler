@@ -16,13 +16,19 @@ import (
 const NodeAffinityName = "NodeAffinity"
 
 // NodeAffinity is a plugin that checks if a pod's node affinity matches a node.
-type NodeAffinity struct{}
+type NodeAffinity struct {
+	cache *utils.Cache
+}
 
 var _ framework.FilterPlugin = &NodeAffinity{}
 var _ framework.ScorePlugin = &NodeAffinity{}
 
 func NewNodeAffinity() *NodeAffinity {
 	return &NodeAffinity{}
+}
+
+func NewNodeAffinityWithCache(cache *utils.Cache) *NodeAffinity {
+	return &NodeAffinity{cache: cache}
 }
 
 func (n *NodeAffinity) Name() string {
@@ -64,7 +70,39 @@ func (n *NodeAffinity) Filter(ctx context.Context, pod *v1.Pod, nodeInfo *utils.
 
 // Score gives higher score to nodes that match preferred node affinity
 func (n *NodeAffinity) Score(ctx context.Context, pod *v1.Pod, nodeName string) (int64, *utils.Status) {
-	return 0, utils.NewStatus(utils.Success, "")
+	// Get preferred scheduling terms
+	preferredTerms := GetPreferredNodeAffinity(pod)
+	if len(preferredTerms) == 0 {
+		return 0, utils.NewStatus(utils.Success, "")
+	}
+
+	// Get node info from cache
+	var node *v1.Node
+	if n.cache != nil {
+		nodeInfo := n.cache.Nodes()[nodeName]
+		if nodeInfo != nil {
+			node = nodeInfo.Node()
+		}
+	}
+
+	if node == nil {
+		return 0, utils.NewStatus(utils.Success, "")
+	}
+
+	// Calculate score based on preferred scheduling terms
+	var score int64 = 0
+	for _, term := range preferredTerms {
+		if nodeMatchesNodeSelectorTerm(node, &term.Preference) {
+			score += int64(term.Weight)
+		}
+	}
+
+	// Normalize score to 0-100 range
+	if score > 100 {
+		score = 100
+	}
+
+	return score, utils.NewStatus(utils.Success, "")
 }
 
 func (n *NodeAffinity) ScoreExtensions() framework.ScoreExtensions {
