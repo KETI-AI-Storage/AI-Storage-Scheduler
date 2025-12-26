@@ -1,0 +1,137 @@
+apiVersion: ai-storage.keti/v1
+kind: AIStorageConfig
+metadata:
+  name: default
+  namespace: keti
+spec:
+  # ========================================
+  # Plugin Configuration
+  # ========================================
+  plugins:
+    dataLocalityAware:
+      enabled: true
+      weight: 3
+      scoring:
+        apolloScoreMax: 30
+        pvcLocalityScoreMax: 30
+        cacheScoreMax: 20
+        topologyScoreMax: 20
+
+    storageTierAware:
+      enabled: true
+      weight: 3
+      scoring:
+        ioPatternScoreMax: 40
+        pipelineStageScoreMax: 30
+        iopsScoreMax: 20
+        capacityScoreMax: 10
+
+    ioPatternBased:
+      enabled: true
+      weight: 3
+      scoring:
+        apolloPreferenceScoreMax: 15
+        resourceMatchScoreMax: 25
+        ioOptimizationScoreMax: 20
+        expansionScoreMax: 20
+        csdScoreMax: 20
+
+  # ========================================
+  # Preprocessing Type Characteristics
+  # ========================================
+  preprocessingTypes:
+    augmentation:
+      readIntensive: true
+      writeIntensive: true
+      cpuIntensive: true
+      memoryIntensive: true
+      dataExpansion: 5.0
+      sequentialAccess: true
+      requiresCSD: false
+
+    transformation:
+      readIntensive: true
+      writeIntensive: true
+      cpuIntensive: true
+      memoryIntensive: false
+      dataExpansion: 1.0
+      sequentialAccess: true
+      requiresCSD: true
+
+    filtering:
+      readIntensive: true
+      writeIntensive: false
+      cpuIntensive: false
+      memoryIntensive: false
+      dataExpansion: 0.3
+      sequentialAccess: true
+      requiresCSD: true
+
+    aggregation:
+      readIntensive: true
+      writeIntensive: false
+      cpuIntensive: true
+      memoryIntensive: true
+      dataExpansion: 0.01
+      sequentialAccess: true
+      requiresCSD: true
+
+    sharding:
+      readIntensive: true
+      writeIntensive: true
+      cpuIntensive: false
+      memoryIntensive: false
+      dataExpansion: 1.0
+      sequentialAccess: true
+      requiresCSD: false
+
+    normalization:
+      readIntensive: true
+      writeIntensive: true
+      cpuIntensive: true
+      memoryIntensive: false
+      dataExpansion: 1.0
+      sequentialAccess: true
+      requiresCSD: true
+
+    featureExtraction:
+      readIntensive: true
+      writeIntensive: false
+      cpuIntensive: true
+      memoryIntensive: true
+      dataExpansion: 0.1
+      sequentialAccess: true
+      requiresCSD: true
+
+  # ========================================
+  # Storage Tier Scoring
+  # ========================================
+  storageTiers:
+    nvme:
+      readHeavyScore: 40
+      writeHeavyScore: 40
+      randomScore: 40
+      sequentialScore: 35
+    ssd:
+      readHeavyScore: 30
+      writeHeavyScore: 25
+      randomScore: 30
+      sequentialScore: 30
+    hdd:
+      readHeavyScore: 20
+      writeHeavyScore: 15
+      randomScore: 10
+      sequentialScore: 25
+    csd:
+      filteringBonus: 20
+      aggregationBonus: 20
+      transformationBonus: 15
+
+  # ========================================
+  # APOLLO Configuration
+  # ========================================
+  apollo:
+    endpoint: "apollo-policy-server.keti.svc.cluster.local:50051"
+    cacheExpirySeconds: 30
+    connectionTimeoutSeconds: 10
+    fallbackEnabled: true

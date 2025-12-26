@@ -1,0 +1,228 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: aistorageconfigs.ai-storage.keti
+spec:
+  group: ai-storage.keti
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                # ========================================
+                # Plugin Configuration
+                # ========================================
+                plugins:
+                  type: object
+                  properties:
+                    dataLocalityAware:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        weight:
+                          type: integer
+                          default: 3
+                          minimum: 0
+                          maximum: 10
+                        scoring:
+                          type: object
+                          properties:
+                            apolloScoreMax:
+                              type: integer
+                              default: 30
+                            pvcLocalityScoreMax:
+                              type: integer
+                              default: 30
+                            cacheScoreMax:
+                              type: integer
+                              default: 20
+                            topologyScoreMax:
+                              type: integer
+                              default: 20
+                    storageTierAware:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        weight:
+                          type: integer
+                          default: 3
+                          minimum: 0
+                          maximum: 10
+                        scoring:
+                          type: object
+                          properties:
+                            ioPatternScoreMax:
+                              type: integer
+                              default: 40
+                            pipelineStageScoreMax:
+                              type: integer
+                              default: 30
+                            iopsScoreMax:
+                              type: integer
+                              default: 20
+                            capacityScoreMax:
+                              type: integer
+                              default: 10
+                    ioPatternBased:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        weight:
+                          type: integer
+                          default: 3
+                          minimum: 0
+                          maximum: 10
+                        scoring:
+                          type: object
+                          properties:
+                            apolloPreferenceScoreMax:
+                              type: integer
+                              default: 15
+                            resourceMatchScoreMax:
+                              type: integer
+                              default: 25
+                            ioOptimizationScoreMax:
+                              type: integer
+                              default: 20
+                            expansionScoreMax:
+                              type: integer
+                              default: 20
+                            csdScoreMax:
+                              type: integer
+                              default: 20
+                # ========================================
+                # Preprocessing Type Characteristics
+                # ========================================
+                preprocessingTypes:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      readIntensive:
+                        type: boolean
+                      writeIntensive:
+                        type: boolean
+                      cpuIntensive:
+                        type: boolean
+                      memoryIntensive:
+                        type: boolean
+                      dataExpansion:
+                        type: number
+                      sequentialAccess:
+                        type: boolean
+                      requiresCSD:
+                        type: boolean
+                # ========================================
+                # Storage Tier Scoring
+                # ========================================
+                storageTiers:
+                  type: object
+                  properties:
+                    nvme:
+                      type: object
+                      properties:
+                        readHeavyScore:
+                          type: integer
+                          default: 40
+                        writeHeavyScore:
+                          type: integer
+                          default: 40
+                        randomScore:
+                          type: integer
+                          default: 40
+                        sequentialScore:
+                          type: integer
+                          default: 35
+                    ssd:
+                      type: object
+                      properties:
+                        readHeavyScore:
+                          type: integer
+                          default: 30
+                        writeHeavyScore:
+                          type: integer
+                          default: 25
+                        randomScore:
+                          type: integer
+                          default: 30
+                        sequentialScore:
+                          type: integer
+                          default: 30
+                    hdd:
+                      type: object
+                      properties:
+                        readHeavyScore:
+                          type: integer
+                          default: 20
+                        writeHeavyScore:
+                          type: integer
+                          default: 15
+                        randomScore:
+                          type: integer
+                          default: 10
+                        sequentialScore:
+                          type: integer
+                          default: 25
+                    csd:
+                      type: object
+                      properties:
+                        filteringBonus:
+                          type: integer
+                          default: 20
+                        aggregationBonus:
+                          type: integer
+                          default: 20
+                        transformationBonus:
+                          type: integer
+                          default: 15
+                # ========================================
+                # APOLLO Configuration
+                # ========================================
+                apollo:
+                  type: object
+                  properties:
+                    endpoint:
+                      type: string
+                      default: "apollo-policy-server.keti.svc.cluster.local:50051"
+                    cacheExpirySeconds:
+                      type: integer
+                      default: 30
+                    connectionTimeoutSeconds:
+                      type: integer
+                      default: 10
+                    fallbackEnabled:
+                      type: boolean
+                      default: true
+      additionalPrinterColumns:
+        - name: DataLocality-Weight
+          type: integer
+          jsonPath: .spec.plugins.dataLocalityAware.weight
+        - name: StorageTier-Weight
+          type: integer
+          jsonPath: .spec.plugins.storageTierAware.weight
+        - name: IOPattern-Weight
+          type: integer
+          jsonPath: .spec.plugins.ioPatternBased.weight
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: aistorageconfigs
+    singular: aistorageconfig
+    kind: AIStorageConfig
+    shortNames:
+      - aisc
+      - aisconfig

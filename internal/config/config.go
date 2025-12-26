@@ -5,6 +5,7 @@ import (
 	"os"
 
 	logger "keti/ai-storage-scheduler/internal/backend/log"
+	"keti/ai-storage-scheduler/internal/configmanager"
 	framework "keti/ai-storage-scheduler/internal/framework"
 	"keti/ai-storage-scheduler/internal/framework/plugin"
 	"keti/ai-storage-scheduler/internal/framework/utils"
@@ -21,6 +22,31 @@ type SchedulerConfig struct {
 	Cache           *utils.Cache
 }
 
+// getPluginWeight returns the weight for a KETI plugin from CRD config
+func getPluginWeight(pluginName string) int32 {
+	cfg := configmanager.GetManager().GetPluginConfig()
+
+	switch pluginName {
+	case "DataLocalityAware":
+		if cfg.DataLocalityAware.Weight > 0 {
+			return int32(cfg.DataLocalityAware.Weight)
+		}
+		return 3 // default
+	case "StorageTierAware":
+		if cfg.StorageTierAware.Weight > 0 {
+			return int32(cfg.StorageTierAware.Weight)
+		}
+		return 3 // default
+	case "IOPatternBased":
+		if cfg.IOPatternBased.Weight > 0 {
+			return int32(cfg.IOPatternBased.Weight)
+		}
+		return 3 // default
+	default:
+		return 1
+	}
+}
+
 func CreateDefaultConfig() *SchedulerConfig {
 	hostConfig, err := rest.InClusterConfig()
 	if err != nil {
@@ -28,6 +54,14 @@ func CreateDefaultConfig() *SchedulerConfig {
 		os.Exit(1)
 	}
 	hostKubeClient := kubernetes.NewForConfigOrDie(hostConfig)
+
+	// Initialize ConfigManager for dynamic CRD-based configuration
+	cfgMgr := configmanager.GetManager()
+	if err := cfgMgr.Initialize(hostConfig); err != nil {
+		logger.Info("ConfigManager initialization warning (using defaults)", "error", err)
+	} else {
+		logger.Info("ConfigManager initialized successfully")
+	}
 
 	informerFactory := informers.NewSharedInformerFactory(hostKubeClient, 0)
 
@@ -66,6 +100,13 @@ func CreateDefaultConfig() *SchedulerConfig {
 		plugin.NewNodeVolumeLimits(hostKubeClient), // Checks CSI volume limits (max 256)
 		plugin.NewInterPodAffinity(cache),          // Checks pod affinity/anti-affinity
 		plugin.NewPodTopologySpread(cache),         // Checks topology spread constraints
+
+		// ============================================================
+		// KETI AI Storage Preprocessing Plugins (Filter)
+		// ============================================================
+		plugin.NewDataLocalityAware(cache, hostKubeClient), // Filters nodes without PVC access
+		plugin.NewStorageTierAware(cache, hostKubeClient),  // Filters nodes without required storage tier
+		plugin.NewIOPatternBased(cache, hostKubeClient),    // Filters nodes without CSD for CSD-required workloads
 	}
 
 	// PostFilter plugins (for preemption)
@@ -105,6 +146,33 @@ func CreateDefaultConfig() *SchedulerConfig {
 
 		// VolumeBinding: Prefers nodes where volumes are accessible
 		{Plugin: plugin.NewVolumeBinding(hostKubeClient), Weight: 1},
+
+		// ============================================================
+		// KETI AI Storage Preprocessing Plugins (Score)
+		// Weights are loaded from CRD AIStorageConfig
+		// ============================================================
+
+		// DataLocalityAware: Prefers nodes with data locality for preprocessing
+		// - APOLLO node preference (0-30 points, configurable)
+		// - PVC locality scoring (0-30 points, configurable)
+		// - Data cache presence (0-20 points, configurable)
+		// - Network topology proximity (0-20 points, configurable)
+		{Plugin: plugin.NewDataLocalityAware(cache, hostKubeClient), Weight: getPluginWeight("DataLocalityAware")},
+
+		// StorageTierAware: Prefers nodes with optimal storage tier for I/O pattern
+		// - I/O pattern matching (0-40 points, configurable)
+		// - Pipeline stage optimization (0-30 points, configurable)
+		// - IOPS/throughput requirements (0-20 points, configurable)
+		// - Storage capacity (0-10 points, configurable)
+		{Plugin: plugin.NewStorageTierAware(cache, hostKubeClient), Weight: getPluginWeight("StorageTierAware")},
+
+		// IOPatternBased: Prefers nodes optimized for preprocessing type
+		// - APOLLO preference (0-15 points, configurable)
+		// - Resource requirements match (0-25 points, configurable)
+		// - I/O optimization (0-20 points, configurable)
+		// - Data expansion handling (0-20 points, configurable)
+		// - CSD offload capability (0-20 points, configurable)
+		{Plugin: plugin.NewIOPatternBased(cache, hostKubeClient), Weight: getPluginWeight("IOPatternBased")},
 	}
 
 	// Reserve plugins

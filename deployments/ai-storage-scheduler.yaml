@@ -77,10 +77,17 @@ spec:
       name: ai-storage-scheduler
     spec:
       serviceAccountName: ai-storage-scheduler
+      # Control Plane에 배치
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       containers:
         - name: ai-storage-scheduler
           image: ketidevit2/keti-ai-storage-scheduler:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           resources:
             limits:
               memory: "500Mi"
