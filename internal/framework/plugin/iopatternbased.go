@@ -228,10 +228,10 @@ func (p *IOPatternBased) calculateAPOLLOPreferenceScore(policy *apollo.Schedulin
 }
 
 // getPreprocessingTypeFromPolicy gets preprocessing type from APOLLO policy
-func (p *IOPatternBased) getPreprocessingTypeFromPolicy(policy *apollo.SchedulingPolicy, pod *v1.Pod) apollo.PreprocessingTypeEnum {
+func (p *IOPatternBased) getPreprocessingTypeFromPolicy(policy *apollo.SchedulingPolicy, pod *v1.Pod) apollo.PreprocessingType {
 	// APOLLO에서 전처리 유형 가져오기
 	preprocessType := apollo.GetPreprocessingType(policy)
-	if preprocessType != apollo.PreprocessingTypeEnumUnknown {
+	if preprocessType != apollo.PreprocessingType_PREPROCESSING_TYPE_UNKNOWN {
 		logger.Debug("[IOPatternBased] Got preprocessing type from APOLLO", "type", preprocessType.String())
 		return preprocessType
 	}
@@ -244,28 +244,28 @@ func (p *IOPatternBased) getPreprocessingTypeFromPolicy(policy *apollo.Schedulin
 		return p.parsePreprocessingType(ptype)
 	}
 
-	return apollo.PreprocessingTypeEnumUnknown
+	return apollo.PreprocessingType_PREPROCESSING_TYPE_UNKNOWN
 }
 
-// parsePreprocessingType converts string to PreprocessingTypeEnum
-func (p *IOPatternBased) parsePreprocessingType(ptype string) apollo.PreprocessingTypeEnum {
+// parsePreprocessingType converts string to PreprocessingType
+func (p *IOPatternBased) parsePreprocessingType(ptype string) apollo.PreprocessingType {
 	switch strings.ToLower(ptype) {
 	case "augmentation", "augment", "aug":
-		return apollo.PreprocessingTypeEnumAugmentation
+		return apollo.PreprocessingType_PREPROCESSING_TYPE_AUGMENTATION
 	case "transformation", "transform", "convert":
-		return apollo.PreprocessingTypeEnumTransformation
+		return apollo.PreprocessingType_PREPROCESSING_TYPE_TRANSFORMATION
 	case "filtering", "filter", "clean":
-		return apollo.PreprocessingTypeEnumFiltering
+		return apollo.PreprocessingType_PREPROCESSING_TYPE_FILTERING
 	case "aggregation", "aggregate", "agg":
-		return apollo.PreprocessingTypeEnumAggregation
+		return apollo.PreprocessingType_PREPROCESSING_TYPE_AGGREGATION
 	case "sharding", "shard", "partition":
-		return apollo.PreprocessingTypeEnumSharding
+		return apollo.PreprocessingType_PREPROCESSING_TYPE_SHARDING
 	case "feature_extraction", "feature", "extract":
-		return apollo.PreprocessingTypeEnumFeatureExtract
+		return apollo.PreprocessingType_PREPROCESSING_TYPE_FEATURE_EXTRACT
 	case "normalization", "normalize", "norm":
-		return apollo.PreprocessingTypeEnumNormalization
+		return apollo.PreprocessingType_PREPROCESSING_TYPE_NORMALIZATION
 	default:
-		return apollo.PreprocessingTypeEnumUnknown
+		return apollo.PreprocessingType_PREPROCESSING_TYPE_UNKNOWN
 	}
 }
 

@@ -204,7 +204,7 @@ func (c *Client) createEmptyPolicy(namespace, name string) *SchedulingPolicy {
 	return &SchedulingPolicy{
 		PodName:      name,
 		PodNamespace: namespace,
-		Decision:     SchedulingDecisionAllow,
+		Decision:     SchedulingDecision_SCHEDULING_DECISION_ALLOW,
 	}
 }
 
@@ -273,7 +273,7 @@ func IsPreprocessingWorkload(policy *SchedulingPolicy) bool {
 
 	if policy.WorkloadSignature != nil {
 		stage := policy.WorkloadSignature.CurrentStage
-		if stage == PipelineStageEnumPreprocessing || stage == PipelineStageEnumDataLoading {
+		if stage == PipelineStage_PIPELINE_STAGE_PREPROCESSING || stage == PipelineStage_PIPELINE_STAGE_DATA_LOADING {
 			return true
 		}
 
@@ -287,17 +287,17 @@ func IsPreprocessingWorkload(policy *SchedulingPolicy) bool {
 }
 
 // GetStorageClass returns the recommended storage class from policy
-func GetStorageClass(policy *SchedulingPolicy) StorageClassEnum {
+func GetStorageClass(policy *SchedulingPolicy) StorageClass {
 	if policy == nil || policy.StorageRequirements == nil {
-		return StorageClassEnumUnspecified
+		return StorageClass_STORAGE_CLASS_UNSPECIFIED
 	}
 	return policy.StorageRequirements.StorageClass
 }
 
 // GetIOPattern returns the expected I/O pattern from policy
-func GetIOPattern(policy *SchedulingPolicy) IOPatternEnum {
+func GetIOPattern(policy *SchedulingPolicy) IOPattern {
 	if policy == nil {
-		return IOPatternEnumUnknown
+		return IOPattern_IO_PATTERN_UNKNOWN
 	}
 
 	if policy.StorageRequirements != nil {
@@ -308,13 +308,13 @@ func GetIOPattern(policy *SchedulingPolicy) IOPatternEnum {
 		return policy.WorkloadSignature.IoPattern
 	}
 
-	return IOPatternEnumUnknown
+	return IOPattern_IO_PATTERN_UNKNOWN
 }
 
 // GetPreprocessingType returns the preprocessing type from policy
-func GetPreprocessingType(policy *SchedulingPolicy) PreprocessingTypeEnum {
+func GetPreprocessingType(policy *SchedulingPolicy) PreprocessingType {
 	if policy == nil || policy.WorkloadSignature == nil {
-		return PreprocessingTypeEnumUnknown
+		return PreprocessingType_PREPROCESSING_TYPE_UNKNOWN
 	}
 	return policy.WorkloadSignature.PreprocessingType
 }
@@ -407,9 +407,9 @@ func GetPipelineStep(policy *SchedulingPolicy) string {
 }
 
 // GetWorkloadType returns the workload type
-func GetWorkloadType(policy *SchedulingPolicy) WorkloadTypeEnum {
+func GetWorkloadType(policy *SchedulingPolicy) WorkloadType {
 	if policy == nil || policy.WorkloadSignature == nil {
-		return WorkloadTypeEnumUnknown
+		return WorkloadType_WORKLOAD_TYPE_UNKNOWN
 	}
 	return policy.WorkloadSignature.WorkloadType
 }

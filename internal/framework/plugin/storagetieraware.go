@@ -209,15 +209,15 @@ func (s *StorageTierAware) getRequiredStorageTier(policy *apollo.SchedulingPolic
 	if policy != nil {
 		storageClass := apollo.GetStorageClass(policy)
 		switch storageClass {
-		case apollo.StorageClassEnumUltraFast:
+		case apollo.StorageClass_STORAGE_CLASS_ULTRA_FAST:
 			return StorageTierNVMe
-		case apollo.StorageClassEnumFast:
+		case apollo.StorageClass_STORAGE_CLASS_FAST:
 			return StorageTierSSD
-		case apollo.StorageClassEnumStandard:
+		case apollo.StorageClass_STORAGE_CLASS_STANDARD:
 			return StorageTierHDD
-		case apollo.StorageClassEnumCSD:
+		case apollo.StorageClass_STORAGE_CLASS_CSD:
 			return StorageTierCSD
-		case apollo.StorageClassEnumMemory:
+		case apollo.StorageClass_STORAGE_CLASS_MEMORY:
 			return StorageTierMemory
 		}
 	}
@@ -256,7 +256,7 @@ func (s *StorageTierAware) parseStorageTier(tier string) StorageTier {
 // isStrictTierRequired checks if strict tier matching is required
 func (s *StorageTierAware) isStrictTierRequired(policy *apollo.SchedulingPolicy, pod *v1.Pod) bool {
 	// Check APOLLO decision
-	if policy != nil && policy.Decision == apollo.SchedulingDecisionRequire {
+	if policy != nil && policy.Decision == apollo.SchedulingDecision_SCHEDULING_DECISION_REQUIRE {
 		return true
 	}
 
@@ -348,7 +348,7 @@ func (s *StorageTierAware) calculateIOPatternScore(policy *apollo.SchedulingPoli
 	}
 
 	// Get I/O pattern from APOLLO
-	ioPattern := apollo.IOPatternEnumUnknown
+	ioPattern := apollo.IOPattern_IO_PATTERN_UNKNOWN
 	if policy != nil {
 		ioPattern = apollo.GetIOPattern(policy)
 	}
@@ -404,13 +404,13 @@ func (s *StorageTierAware) calculateIOPatternScore(policy *apollo.SchedulingPoli
 
 	// I/O 패턴별 최적 스토리지 티어 매칭
 	switch ioPattern {
-	case apollo.IOPatternEnumRandom:
+	case apollo.IOPattern_IO_PATTERN_RANDOM:
 		return getTierScore(highestTier, "random")
 
-	case apollo.IOPatternEnumSequential:
+	case apollo.IOPattern_IO_PATTERN_SEQUENTIAL:
 		return getTierScore(highestTier, "sequential")
 
-	case apollo.IOPatternEnumBursty:
+	case apollo.IOPattern_IO_PATTERN_BURSTY:
 		// 버스트 쓰기는 빠른 스토리지 필수
 		switch highestTier {
 		case StorageTierNVMe, StorageTierMemory:
@@ -423,13 +423,13 @@ func (s *StorageTierAware) calculateIOPatternScore(policy *apollo.SchedulingPoli
 			return maxScore / 2
 		}
 
-	case apollo.IOPatternEnumReadHeavy:
+	case apollo.IOPattern_IO_PATTERN_READ_HEAVY:
 		return getTierScore(highestTier, "readHeavy")
 
-	case apollo.IOPatternEnumWriteHeavy:
+	case apollo.IOPattern_IO_PATTERN_WRITE_HEAVY:
 		return getTierScore(highestTier, "writeHeavy")
 
-	case apollo.IOPatternEnumBalanced:
+	case apollo.IOPattern_IO_PATTERN_BALANCED:
 		// 혼합 패턴은 전반적으로 빠른 스토리지 선호
 		switch highestTier {
 		case StorageTierNVMe, StorageTierMemory:
