@@ -23,10 +23,10 @@ package plugin
 
 import (
 	"context"
-	"log"
 	"strings"
 
 	"keti/ai-storage-scheduler/internal/apollo"
+	logger "keti/ai-storage-scheduler/internal/backend/log"
 	"keti/ai-storage-scheduler/internal/configmanager"
 	framework "keti/ai-storage-scheduler/internal/framework"
 	utils "keti/ai-storage-scheduler/internal/framework/utils"
