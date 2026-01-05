@@ -1,0 +1,185 @@
+syntax = "proto3";
+
+package apollo;
+
+option go_package = "keti/ai-storage-scheduler/internal/apollo";
+
+// ============================================
+// APOLLO Scheduling Policy Service
+// ============================================
+
+service SchedulingPolicyService {
+  rpc GetSchedulingPolicy(SchedulingPolicyRequest) returns (SchedulingPolicy);
+  rpc ReportSchedulingResult(SchedulingResult) returns (ReportResponse);
+}
+
+// ============================================
+// Request/Response Messages
+// ============================================
+
+message SchedulingPolicyRequest {
+  string pod_name = 1;
+  string pod_namespace = 2;
+  string pod_uid = 3;
+  map<string, string> pod_labels = 4;
+  map<string, string> pod_annotations = 5;
+}
+
+message SchedulingPolicy {
+  string request_id = 1;
+  string pod_name = 2;
+  string pod_namespace = 3;
+  SchedulingDecision decision = 4;
+  repeated NodePreference node_preferences = 5;
+  ComputedResourceRequirements resource_requirements = 6;
+  StorageRequirements storage_requirements = 7;
+  repeated SchedulingConstraint constraints = 8;
+  int32 priority = 9;
+  bool allow_preemption = 10;
+  repeated AffinityRule affinity_rules = 11;
+  string reason = 12;
+  WorkloadSignatureInfo workload_signature = 20;
+}
+
+message WorkloadSignatureInfo {
+  WorkloadType workload_type = 1;
+  PipelineStage current_stage = 2;
+  IOPattern io_pattern = 3;
+  double confidence = 4;
+  string framework = 5;
+  string framework_version = 6;
+  bool is_gpu_workload = 7;
+  bool is_distributed = 8;
+  bool is_pipeline = 9;
+  string pipeline_step = 10;
+  int32 estimated_batch_size = 11;
+  PreprocessingType preprocessing_type = 12;
+  string dataset_name = 13;
+  repeated string data_locations = 14;
+  repeated string cached_on_nodes = 15;
+}
+
+// ============================================
+// Enum Definitions
+// ============================================
+
+enum SchedulingDecision {
+  SCHEDULING_DECISION_UNSPECIFIED = 0;
+  SCHEDULING_DECISION_ALLOW = 1;
+  SCHEDULING_DECISION_PREFER = 2;
+  SCHEDULING_DECISION_REQUIRE = 3;
+  SCHEDULING_DECISION_DELAY = 4;
+  SCHEDULING_DECISION_REJECT = 5;
+}
+
+enum WorkloadType {
+  WORKLOAD_TYPE_UNKNOWN = 0;
+  WORKLOAD_TYPE_IMAGE = 1;
+  WORKLOAD_TYPE_TEXT = 2;
+  WORKLOAD_TYPE_TABULAR = 3;
+  WORKLOAD_TYPE_AUDIO = 4;
+  WORKLOAD_TYPE_VIDEO = 5;
+  WORKLOAD_TYPE_MULTIMODAL = 6;
+  WORKLOAD_TYPE_GENERIC = 7;
+}
+
+enum PipelineStage {
+  PIPELINE_STAGE_UNKNOWN = 0;
+  PIPELINE_STAGE_DATA_LOADING = 1;
+  PIPELINE_STAGE_PREPROCESSING = 2;
+  PIPELINE_STAGE_TRAINING = 3;
+  PIPELINE_STAGE_VALIDATION = 4;
+  PIPELINE_STAGE_INFERENCE = 5;
+  PIPELINE_STAGE_POSTPROCESSING = 6;
+  PIPELINE_STAGE_CHECKPOINTING = 7;
+  PIPELINE_STAGE_IDLE = 8;
+}
+
+enum IOPattern {
+  IO_PATTERN_UNKNOWN = 0;
+  IO_PATTERN_READ_HEAVY = 1;
+  IO_PATTERN_WRITE_HEAVY = 2;
+  IO_PATTERN_BALANCED = 3;
+  IO_PATTERN_SEQUENTIAL = 4;
+  IO_PATTERN_RANDOM = 5;
+  IO_PATTERN_BURSTY = 6;
+}
+
+enum StorageClass {
+  STORAGE_CLASS_UNSPECIFIED = 0;
+  STORAGE_CLASS_STANDARD = 1;
+  STORAGE_CLASS_FAST = 2;
+  STORAGE_CLASS_ULTRA_FAST = 3;
+  STORAGE_CLASS_CSD = 4;
+  STORAGE_CLASS_MEMORY = 5;
+}
+
+enum PreprocessingType {
+  PREPROCESSING_TYPE_UNKNOWN = 0;
+  PREPROCESSING_TYPE_AUGMENTATION = 1;
+  PREPROCESSING_TYPE_TRANSFORMATION = 2;
+  PREPROCESSING_TYPE_FILTERING = 3;
+  PREPROCESSING_TYPE_AGGREGATION = 4;
+  PREPROCESSING_TYPE_SHARDING = 5;
+  PREPROCESSING_TYPE_NORMALIZATION = 6;
+  PREPROCESSING_TYPE_FEATURE_EXTRACT = 7;
+}
+
+// ============================================
+// Sub-message Definitions
+// ============================================
+
+message NodePreference {
+  string node_name = 1;
+  int32 score = 2;
+  string reason = 3;
+}
+
+message ComputedResourceRequirements {
+  double cpu_cores = 1;
+  int64 memory_bytes = 2;
+  int64 storage_bytes = 3;
+  int32 gpu_count = 4;
+  int64 expected_iops = 5;
+  int64 expected_throughput_mbps = 6;
+}
+
+message StorageRequirements {
+  StorageClass storage_class = 1;
+  int64 size_bytes = 2;
+  int64 min_iops = 3;
+  int64 min_throughput_mbps = 4;
+  IOPattern expected_io_pattern = 5;
+  bool requires_csd = 6;
+}
+
+message SchedulingConstraint {
+  string constraint_type = 1;
+  string key = 2;
+  string operator = 3;
+  repeated string values = 4;
+}
+
+message AffinityRule {
+  string rule_type = 1;
+  string topology_key = 2;
+  repeated string target_labels = 3;
+  bool is_required = 4;
+  int32 weight = 5;
+}
+
+message SchedulingResult {
+  string request_id = 1;
+  string pod_name = 2;
+  string pod_namespace = 3;
+  string scheduled_node = 4;
+  bool success = 5;
+  string failure_reason = 6;
+  int64 scheduling_duration_ms = 7;
+}
+
+message ReportResponse {
+  bool success = 1;
+  string message = 2;
+  string request_id = 3;
+}
