@@ -294,7 +294,7 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 
 	// Fallback to hardcoded defaults if not in CRD
 	switch preprocessType {
-	case apollo.PreprocessingTypeEnumAugmentation:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_AUGMENTATION:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   true, // 데이터 증가
@@ -305,7 +305,7 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			RequiresCSD:      requiresCSD,
 		}
 
-	case apollo.PreprocessingTypeEnumTransformation:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_TRANSFORMATION:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   true,
@@ -316,7 +316,7 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			RequiresCSD:      requiresCSD || true, // 변환은 CSD 오프로드 가능
 		}
 
-	case apollo.PreprocessingTypeEnumFiltering:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_FILTERING:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   false,
@@ -327,7 +327,7 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			RequiresCSD:      requiresCSD || true, // 필터링은 CSD 오프로드 가능
 		}
 
-	case apollo.PreprocessingTypeEnumAggregation:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_AGGREGATION:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   false,
@@ -338,7 +338,7 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			RequiresCSD:      requiresCSD || true, // 집계는 CSD 오프로드 가능
 		}
 
-	case apollo.PreprocessingTypeEnumSharding:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_SHARDING:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   true, // 다중 출력
@@ -349,7 +349,7 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			RequiresCSD:      requiresCSD,
 		}
 
-	case apollo.PreprocessingTypeEnumFeatureExtract:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_FEATURE_EXTRACT:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   false,
@@ -360,7 +360,7 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			RequiresCSD:      requiresCSD || true,
 		}
 
-	case apollo.PreprocessingTypeEnumNormalization:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_NORMALIZATION:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   true,
@@ -373,7 +373,7 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 	}
 
 	// APOLLO에서 I/O 패턴 정보로 특성 추론
-	if ioPattern != apollo.IOPatternEnumUnknown {
+	if ioPattern != apollo.IOPattern_IO_PATTERN_UNKNOWN {
 		return p.inferCharacteristicsFromIOPattern(ioPattern, requiresCSD)
 	}
 
@@ -389,22 +389,22 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 	}
 }
 
-// preprocessTypeToString converts PreprocessingTypeEnum to CRD config key
-func (p *IOPatternBased) preprocessTypeToString(ptype apollo.PreprocessingTypeEnum) string {
+// preprocessTypeToString converts PreprocessingType to CRD config key
+func (p *IOPatternBased) preprocessTypeToString(ptype apollo.PreprocessingType) string {
 	switch ptype {
-	case apollo.PreprocessingTypeEnumAugmentation:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_AUGMENTATION:
 		return "augmentation"
-	case apollo.PreprocessingTypeEnumTransformation:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_TRANSFORMATION:
 		return "transformation"
-	case apollo.PreprocessingTypeEnumFiltering:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_FILTERING:
 		return "filtering"
-	case apollo.PreprocessingTypeEnumAggregation:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_AGGREGATION:
 		return "aggregation"
-	case apollo.PreprocessingTypeEnumSharding:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_SHARDING:
 		return "sharding"
-	case apollo.PreprocessingTypeEnumFeatureExtract:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_FEATURE_EXTRACT:
 		return "featureExtraction"
-	case apollo.PreprocessingTypeEnumNormalization:
+	case apollo.PreprocessingType_PREPROCESSING_TYPE_NORMALIZATION:
 		return "normalization"
 	default:
 		return ""
@@ -412,9 +412,9 @@ func (p *IOPatternBased) preprocessTypeToString(ptype apollo.PreprocessingTypeEn
 }
 
 // inferCharacteristicsFromIOPattern infers I/O characteristics from I/O pattern
-func (p *IOPatternBased) inferCharacteristicsFromIOPattern(ioPattern apollo.IOPatternEnum, requiresCSD bool) IOCharacteristics {
+func (p *IOPatternBased) inferCharacteristicsFromIOPattern(ioPattern apollo.IOPattern, requiresCSD bool) IOCharacteristics {
 	switch ioPattern {
-	case apollo.IOPatternEnumReadHeavy:
+	case apollo.IOPattern_IO_PATTERN_READ_HEAVY:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   false,
@@ -424,7 +424,7 @@ func (p *IOPatternBased) inferCharacteristicsFromIOPattern(ioPattern apollo.IOPa
 			SequentialAccess: true,
 			RequiresCSD:      requiresCSD,
 		}
-	case apollo.IOPatternEnumWriteHeavy:
+	case apollo.IOPattern_IO_PATTERN_WRITE_HEAVY:
 		return IOCharacteristics{
 			ReadIntensive:    false,
 			WriteIntensive:   true,
@@ -434,7 +434,7 @@ func (p *IOPatternBased) inferCharacteristicsFromIOPattern(ioPattern apollo.IOPa
 			SequentialAccess: true,
 			RequiresCSD:      requiresCSD,
 		}
-	case apollo.IOPatternEnumSequential:
+	case apollo.IOPattern_IO_PATTERN_SEQUENTIAL:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   true,
@@ -444,7 +444,7 @@ func (p *IOPatternBased) inferCharacteristicsFromIOPattern(ioPattern apollo.IOPa
 			SequentialAccess: true,
 			RequiresCSD:      requiresCSD,
 		}
-	case apollo.IOPatternEnumRandom:
+	case apollo.IOPattern_IO_PATTERN_RANDOM:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   true,
@@ -454,7 +454,7 @@ func (p *IOPatternBased) inferCharacteristicsFromIOPattern(ioPattern apollo.IOPa
 			SequentialAccess: false,
 			RequiresCSD:      requiresCSD,
 		}
-	case apollo.IOPatternEnumBalanced:
+	case apollo.IOPattern_IO_PATTERN_BALANCED:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   true,
@@ -464,7 +464,7 @@ func (p *IOPatternBased) inferCharacteristicsFromIOPattern(ioPattern apollo.IOPa
 			SequentialAccess: true,
 			RequiresCSD:      requiresCSD,
 		}
-	case apollo.IOPatternEnumBursty:
+	case apollo.IOPattern_IO_PATTERN_BURSTY:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   true,
