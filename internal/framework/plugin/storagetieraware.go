@@ -22,11 +22,11 @@ package plugin
 
 import (
 	"context"
-	"log"
 	"strconv"
 	"strings"
 
 	"keti/ai-storage-scheduler/internal/apollo"
+	logger "keti/ai-storage-scheduler/internal/backend/log"
 	"keti/ai-storage-scheduler/internal/configmanager"
 	framework "keti/ai-storage-scheduler/internal/framework"
 	utils "keti/ai-storage-scheduler/internal/framework/utils"
@@ -166,8 +166,10 @@ func (s *StorageTierAware) Score(ctx context.Context, pod *v1.Pod, nodeName stri
 	capacityScore := s.calculateCapacityScore(pod, node)
 	score += capacityScore
 
-	log.Printf("[StorageTierAware] Node %s scored %d (IOPattern:%d, Pipeline:%d, Performance:%d, Capacity:%d)",
-		nodeName, score, ioPatternScore, pipelineScore, performanceScore, capacityScore)
+	logger.Info("[StorageTierAware] Node scored",
+		"node", nodeName, "score", score,
+		"ioPatternScore", ioPatternScore, "pipelineScore", pipelineScore,
+		"performanceScore", performanceScore, "capacityScore", capacityScore)
 
 	return score, utils.NewStatus(utils.Success, "")
 }
@@ -194,7 +196,7 @@ func (s *StorageTierAware) getSchedulingPolicy(pod *v1.Pod) *apollo.SchedulingPo
 		pod.Annotations,
 	)
 	if err != nil {
-		log.Printf("[StorageTierAware] Failed to get APOLLO policy: %v", err)
+		logger.Warn("[StorageTierAware] Failed to get APOLLO policy", "error", err.Error())
 		return nil
 	}
 

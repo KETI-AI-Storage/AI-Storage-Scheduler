@@ -16,10 +16,11 @@ package apollo
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 	"time"
+
+	logger "keti/ai-storage-scheduler/internal/backend/log"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -63,7 +64,7 @@ func GetClient() *Client {
 		// Try to connect on init (non-blocking)
 		go func() {
 			if err := globalClient.Connect(); err != nil {
-				log.Printf("[APOLLO-Client] Initial connection failed: %v (will retry on demand)", err)
+				logger.Warn("[APOLLO-Client] Initial connection failed (will retry on demand)", "error", err.Error())
 			}
 		}()
 	})
@@ -89,7 +90,7 @@ func (c *Client) Connect() error {
 		return nil
 	}
 
-	log.Printf("[APOLLO-Client] Connecting to %s...", c.endpoint)
+	logger.Info("[APOLLO-Client] Connecting to APOLLO", "endpoint", c.endpoint)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -108,7 +109,7 @@ func (c *Client) Connect() error {
 	c.client = NewSchedulingPolicyServiceClient(conn)
 	c.connected = true
 
-	log.Printf("[APOLLO-Client] Connected to APOLLO at %s", c.endpoint)
+	logger.Info("[APOLLO-Client] Connected to APOLLO", "endpoint", c.endpoint)
 	return nil
 }
 
@@ -151,7 +152,7 @@ func (c *Client) GetSchedulingPolicy(podNamespace, podName, podUID string, label
 	// Ensure connection
 	if !c.IsConnected() {
 		if err := c.Connect(); err != nil {
-			log.Printf("[APOLLO-Client] Connection failed, returning empty policy: %v", err)
+			logger.Warn("[APOLLO-Client] Connection failed, returning empty policy", "error", err.Error())
 			return c.createEmptyPolicy(podNamespace, podName), nil
 		}
 	}
@@ -170,7 +171,7 @@ func (c *Client) GetSchedulingPolicy(podNamespace, podName, podUID string, label
 
 	policy, err := c.client.GetSchedulingPolicy(ctx, req)
 	if err != nil {
-		log.Printf("[APOLLO-Client] Failed to get scheduling policy for %s/%s: %v", podNamespace, podName, err)
+		logger.Warn("[APOLLO-Client] Failed to get scheduling policy", "namespace", podNamespace, "pod", podName, "error", err.Error())
 
 		// Return cached policy if available
 		c.cacheMu.RLock()
@@ -189,11 +190,11 @@ func (c *Client) GetSchedulingPolicy(podNamespace, podName, podUID string, label
 	c.cacheUpdateAt[cacheKey] = time.Now()
 	c.cacheMu.Unlock()
 
-	log.Printf("[APOLLO-Client] Got scheduling policy for %s/%s: stage=%s, io_pattern=%s, storage_class=%s",
-		podNamespace, podName,
-		c.getStageName(policy),
-		c.getIOPatternName(policy),
-		c.getStorageClassName(policy))
+	logger.Info("[APOLLO-Client] Got scheduling policy",
+		"namespace", podNamespace, "pod", podName,
+		"stage", c.getStageName(policy),
+		"io_pattern", c.getIOPatternName(policy),
+		"storage_class", c.getStorageClassName(policy))
 
 	return policy, nil
 }
@@ -253,7 +254,7 @@ func (c *Client) ReportSchedulingResult(requestID, podNamespace, podName, schedu
 
 	_, err := c.client.ReportSchedulingResult(ctx, result)
 	if err != nil {
-		log.Printf("[APOLLO-Client] Failed to report scheduling result: %v", err)
+		logger.Warn("[APOLLO-Client] Failed to report scheduling result", "error", err.Error())
 		return err
 	}
 

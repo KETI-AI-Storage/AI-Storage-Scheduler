@@ -130,8 +130,10 @@ func (d *DataLocalityAware) Score(ctx context.Context, pod *v1.Pod, nodeName str
 	topologyScore := d.calculateTopologyScore(pod, node)
 	score += topologyScore
 
-	log.Printf("[DataLocalityAware] Node %s scored %d (APOLLO:%d, PVC:%d, Cache:%d, Topology:%d)",
-		nodeName, score, apolloScore, pvcScore, cacheScore, topologyScore)
+	logger.Info("[DataLocalityAware] Node scored",
+		"node", nodeName, "score", score,
+		"apolloScore", apolloScore, "pvcScore", pvcScore,
+		"cacheScore", cacheScore, "topologyScore", topologyScore)
 
 	return score, utils.NewStatus(utils.Success, "")
 }
@@ -158,7 +160,7 @@ func (d *DataLocalityAware) getSchedulingPolicy(pod *v1.Pod) *apollo.SchedulingP
 		pod.Annotations,
 	)
 	if err != nil {
-		log.Printf("[DataLocalityAware] Failed to get APOLLO policy: %v", err)
+		logger.Warn("[DataLocalityAware] Failed to get APOLLO policy", "error", err.Error())
 		return nil
 	}
 

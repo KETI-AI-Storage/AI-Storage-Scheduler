@@ -42,11 +42,11 @@ package plugin
 
 import (
 	"context"
-	"log"
 	"strconv"
 	"strings"
 
 	"keti/ai-storage-scheduler/internal/apollo"
+	logger "keti/ai-storage-scheduler/internal/backend/log"
 	"keti/ai-storage-scheduler/internal/configmanager"
 	framework "keti/ai-storage-scheduler/internal/framework"
 	utils "keti/ai-storage-scheduler/internal/framework/utils"
@@ -168,8 +168,10 @@ func (p *IOPatternBased) Score(ctx context.Context, pod *v1.Pod, nodeName string
 	csdScore := p.calculateCSDScore(policy, characteristics, node)
 	score += csdScore
 
-	log.Printf("[IOPatternBased] Node %s scored %d for %s (APOLLO:%d, Resource:%d, IO:%d, Expansion:%d, CSD:%d)",
-		nodeName, score, preprocessType.String(), apolloScore, resourceScore, ioScore, expansionScore, csdScore)
+	logger.Info("[IOPatternBased] Node scored",
+		"node", nodeName, "score", score, "preprocessType", preprocessType.String(),
+		"apolloScore", apolloScore, "resourceScore", resourceScore,
+		"ioScore", ioScore, "expansionScore", expansionScore, "csdScore", csdScore)
 
 	return score, utils.NewStatus(utils.Success, "")
 }
@@ -196,7 +198,7 @@ func (p *IOPatternBased) getSchedulingPolicy(pod *v1.Pod) *apollo.SchedulingPoli
 		pod.Annotations,
 	)
 	if err != nil {
-		log.Printf("[IOPatternBased] Failed to get APOLLO policy: %v", err)
+		logger.Warn("[IOPatternBased] Failed to get APOLLO policy", "error", err.Error())
 		return nil
 	}
 
@@ -230,7 +232,7 @@ func (p *IOPatternBased) getPreprocessingTypeFromPolicy(policy *apollo.Schedulin
 	// APOLLO에서 전처리 유형 가져오기
 	preprocessType := apollo.GetPreprocessingType(policy)
 	if preprocessType != apollo.PreprocessingTypeEnumUnknown {
-		log.Printf("[IOPatternBased] Got preprocessing type from APOLLO: %s", preprocessType.String())
+		logger.Debug("[IOPatternBased] Got preprocessing type from APOLLO", "type", preprocessType.String())
 		return preprocessType
 	}
 
