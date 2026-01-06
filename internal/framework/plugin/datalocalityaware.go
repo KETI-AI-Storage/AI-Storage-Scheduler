@@ -112,21 +112,15 @@ func (d *DataLocalityAware) Score(ctx context.Context, pod *v1.Pod, nodeName str
 
 	score := int64(0)
 
-	// 1. APOLLO NodePreference 점수 (0-30점)
-	// APOLLO가 분석한 데이터 로컬리티 기반 노드 선호도
 	apolloScore := d.calculateAPOLLOScore(policy, nodeName)
 	score += apolloScore
 
-	// 2. PVC 로컬리티 점수 (0-30점)
 	pvcScore := d.calculatePVCLocalityScore(pod, node)
 	score += pvcScore
 
-	// 3. 데이터셋 캐시 점수 (0-20점)
-	// APOLLO에서 받은 캐시 노드 정보 사용
 	cacheScore := d.calculateDataCacheScore(policy, node)
 	score += cacheScore
 
-	// 4. 네트워크 토폴로지 점수 (0-20점)
 	topologyScore := d.calculateTopologyScore(pod, node)
 	score += topologyScore
 

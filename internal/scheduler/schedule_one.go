@@ -199,8 +199,14 @@ func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework
 		for name, pr := range scheduleResult.PluginResultMap {
 			if !pr.IsFiltered {
 				scheduleResult.SuggestedHost = name
-				logger.Info("[filter] Only one feasible node, skipping score phase",
-					"namespace", pod.Namespace, "pod", pod.Name, "node", name)
+				// Print ScoreMap even for single node
+				singleNodeScoreMap := formatScoreMap(map[string]int{name: pr.TotalNodeScore})
+				logger.Info("[ScoreMap] Node scores (single feasible node)",
+					"namespace", pod.Namespace, "pod", pod.Name,
+					"score_map", singleNodeScoreMap)
+				logger.Info("[score] Only one feasible node, skipping score phase",
+					"namespace", pod.Namespace, "pod", pod.Name,
+					"selected_node", name, "score", pr.TotalNodeScore)
 			}
 		}
 		return scheduleResult, nil
@@ -310,7 +316,7 @@ func (sched *Scheduler) selectResource(pod *v1.Pod, scheduleResult *ScheduleResu
 	var bestScore int = -1
 
 	nodeScores := make(map[string]int)
-	
+
 	for nodeName, pr := range scheduleResult.PluginResultMap {
 		if !pr.IsFiltered {
 			nodeScores[nodeName] = pr.TotalNodeScore
@@ -325,13 +331,37 @@ func (sched *Scheduler) selectResource(pod *v1.Pod, scheduleResult *ScheduleResu
 		return fmt.Errorf("no suitable node found")
 	}
 
+	// Print ScoreMap before final selection
+	scoreMapStr := formatScoreMap(nodeScores)
+	logger.Info("[ScoreMap] Node scores before selection",
+		"namespace", pod.Namespace, "pod", pod.Name,
+		"score_map", scoreMapStr)
+
 	logger.Info("[score] Best node selected",
 		"namespace", pod.Namespace, "pod", pod.Name,
-		"selected_node", bestNode, "score", bestScore,
-		"all_scores", nodeScores)
+		"selected_node", bestNode, "score", bestScore)
 
 	scheduleResult.SuggestedHost = bestNode
 	return nil
+}
+
+// formatScoreMap formats node scores as "[node1: score1, node2: score2, ...]"
+func formatScoreMap(scores map[string]int) string {
+	if len(scores) == 0 {
+		return "[]"
+	}
+
+	result := "["
+	first := true
+	for nodeName, score := range scores {
+		if !first {
+			result += ", "
+		}
+		result += fmt.Sprintf("%s: %d", nodeName, score)
+		first = false
+	}
+	result += "]"
+	return result
 }
 
 func (sched *Scheduler) runBindPlugin(ctx context.Context, fwk framework.Framework, assumed *v1.Pod, scheduleResult *ScheduleResult) error {
