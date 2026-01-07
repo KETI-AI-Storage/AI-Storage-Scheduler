@@ -128,50 +128,61 @@ func (p *IOPatternBased) Score(ctx context.Context, pod *v1.Pod, nodeName string
 	if nodeInfo == nil {
 		return 0, utils.NewStatus(utils.Error, "node not found in cache")
 	}
-
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0, utils.NewStatus(utils.Error, "node not found")
 	}
+	policy, dataSource := p.getSchedulingPolicyWithSource(pod)
 
-	// Get scheduling policy from APOLLO
-	policy := p.getSchedulingPolicy(pod)
+	isPreprocessFromAPOLLO := apollo.IsPreprocessingWorkload(policy)
+	isPreprocessFromPod := p.isPreprocessingWorkloadFromPod(pod)
 
-	// 전처리 워크로드가 아니면 기본 점수
-	if !apollo.IsPreprocessingWorkload(policy) && !p.isPreprocessingWorkloadFromPod(pod) {
+	if !isPreprocessFromAPOLLO && !isPreprocessFromPod {
 		return 50, utils.NewStatus(utils.Success, "")
 	}
+	if isPreprocessFromAPOLLO {
+		logger.Info("[IOPatternBased-DataSource] Preprocessing detected from APOLLO",
+			"namespace", pod.Namespace, "pod", pod.Name, "source", dataSource)
+	} else if isPreprocessFromPod {
+		logger.Info("[IOPatternBased-DataSource] Preprocessing detected from Pod labels/annotations (FALLBACK)",
+			"namespace", pod.Namespace, "pod", pod.Name)
+	}
 
-	// Get preprocessing type and I/O characteristics from APOLLO
-	preprocessType := p.getPreprocessingTypeFromPolicy(policy, pod)
-	characteristics := p.getIOCharacteristicsFromPolicy(policy, pod)
+	// Get preprocessing type and I/O characteristics from APOLLO with source tracking
+	preprocessType, preprocessTypeSource := p.getPreprocessingTypeWithSource(policy, pod, dataSource)
+	characteristics, charsSource := p.getIOCharacteristicsWithSource(policy, pod, dataSource)
 
 	score := int64(0)
 
 	// 0. APOLLO 노드 선호도 점수 (0-15점)
-	apolloScore := p.calculateAPOLLOPreferenceScore(policy, nodeName)
+	apolloScore, apolloScoreSource := p.calculateAPOLLOPreferenceScoreWithSource(policy, nodeName, dataSource)
 	score += apolloScore
 
-	// 1. 전처리 유형별 리소스 매칭 (0-25점)
+	// 1. 전처리 유형별 리소스 매칭 (0-25점) - Node labels/annotations에서 가져옴
 	resourceScore := p.calculateResourceMatchScore(characteristics, node)
 	score += resourceScore
 
-	// 2. I/O 패턴 최적화 점수 (0-20점)
+	// 2. I/O 패턴 최적화 점수 (0-20점) - Node labels/annotations에서 가져옴
 	ioScore := p.calculateIOOptimizationScore(characteristics, node)
 	score += ioScore
 
-	// 3. 데이터 확장/축소 대응 점수 (0-20점)
+	// 3. 데이터 확장/축소 대응 점수 (0-20점) - Node annotations에서 가져옴
 	expansionScore := p.calculateExpansionScore(characteristics, node)
 	score += expansionScore
 
 	// 4. CSD 오프로드 가능성 점수 (0-20점)
-	csdScore := p.calculateCSDScore(policy, characteristics, node)
+	csdScore, csdScoreSource := p.calculateCSDScoreWithSource(policy, characteristics, node, dataSource)
 	score += csdScore
 
 	logger.Info("[IOPatternBased] Node scored",
-		"node", nodeName, "score", score, "preprocessType", preprocessType.String(),
-		"apolloScore", apolloScore, "resourceScore", resourceScore,
-		"ioScore", ioScore, "expansionScore", expansionScore, "csdScore", csdScore)
+		"node", nodeName, "score", score,
+		"preprocessType", preprocessType.String(), "preprocessTypeSource", preprocessTypeSource,
+		"charsSource", charsSource,
+		"apolloScore", apolloScore, "apolloScoreSource", apolloScoreSource,
+		"resourceScore", resourceScore, "resourceScoreSource", "Node-Labels",
+		"ioScore", ioScore, "ioScoreSource", "Node-Labels",
+		"expansionScore", expansionScore, "expansionScoreSource", "Node-Annotations",
+		"csdScore", csdScore, "csdScoreSource", csdScoreSource)
 
 	return score, utils.NewStatus(utils.Success, "")
 }
@@ -184,67 +195,81 @@ func (p *IOPatternBased) NormalizeScore(ctx context.Context, pod *v1.Pod, scores
 	return utils.NewStatus(utils.Success, "")
 }
 
-// getSchedulingPolicy fetches scheduling policy from APOLLO
-func (p *IOPatternBased) getSchedulingPolicy(pod *v1.Pod) *apollo.SchedulingPolicy {
+// getSchedulingPolicyWithSource fetches scheduling policy from APOLLO with source tracking
+func (p *IOPatternBased) getSchedulingPolicyWithSource(pod *v1.Pod) (*apollo.SchedulingPolicy, apollo.DataSource) {
 	if p.apolloClient == nil {
-		return nil
+		logger.Info("[IOPatternBased-DataSource] FALLBACK - No APOLLO client, using Pod labels/annotations",
+			"namespace", pod.Namespace, "pod", pod.Name)
+		return nil, apollo.DataSourceFallback
 	}
 
-	policy, err := p.apolloClient.GetSchedulingPolicy(
+	result := p.apolloClient.GetSchedulingPolicyWithSource(
 		pod.Namespace,
 		pod.Name,
 		string(pod.UID),
 		pod.Labels,
 		pod.Annotations,
 	)
-	if err != nil {
-		logger.Warn("[IOPatternBased] Failed to get APOLLO policy", "error", err.Error())
-		return nil
-	}
 
+	return result.Policy, result.Source
+}
+
+// getSchedulingPolicy fetches scheduling policy from APOLLO (legacy wrapper)
+func (p *IOPatternBased) getSchedulingPolicy(pod *v1.Pod) *apollo.SchedulingPolicy {
+	policy, _ := p.getSchedulingPolicyWithSource(pod)
 	return policy
 }
 
-// calculateAPOLLOPreferenceScore calculates score based on APOLLO's node preference
-func (p *IOPatternBased) calculateAPOLLOPreferenceScore(policy *apollo.SchedulingPolicy, nodeName string) int64 {
-	// Get max score from CRD config
+// calculateAPOLLOPreferenceScoreWithSource calculates score based on APOLLO's node preference with source tracking
+func (p *IOPatternBased) calculateAPOLLOPreferenceScoreWithSource(policy *apollo.SchedulingPolicy, nodeName string, policySource apollo.DataSource) (int64, string) {
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetIOPatternConfig()
 	maxScore := int64(cfg.Scoring.ApolloPreferenceScoreMax)
-	if maxScore == 0 {
-		maxScore = 15 // default
-	}
 
-	if policy == nil {
-		return maxScore / 2 // 중립 점수
+	if policy == nil || policySource == apollo.DataSourceFallback {
+		return maxScore / 2, "NEUTRAL (no APOLLO data)"
 	}
 
 	prefScore := apollo.GetNodePreferenceScore(policy, nodeName)
 	if prefScore > 0 {
 		// APOLLO 점수를 0-maxScore 범위로 매핑 (APOLLO는 0-100)
-		return int64(prefScore) * maxScore / 100
+		return int64(prefScore) * maxScore / 100, "APOLLO-NodePreference"
 	}
 
-	return maxScore / 3 // 기본 점수
+	return maxScore / 3, "APOLLO-Default"
 }
 
-// getPreprocessingTypeFromPolicy gets preprocessing type from APOLLO policy
-func (p *IOPatternBased) getPreprocessingTypeFromPolicy(policy *apollo.SchedulingPolicy, pod *v1.Pod) apollo.PreprocessingType {
+// calculateAPOLLOPreferenceScore calculates score based on APOLLO's node preference (legacy wrapper)
+func (p *IOPatternBased) calculateAPOLLOPreferenceScore(policy *apollo.SchedulingPolicy, nodeName string) int64 {
+	score, _ := p.calculateAPOLLOPreferenceScoreWithSource(policy, nodeName, apollo.DataSourceAPOLLO)
+	return score
+}
+
+// getPreprocessingTypeWithSource gets preprocessing type from APOLLO policy with source tracking
+func (p *IOPatternBased) getPreprocessingTypeWithSource(policy *apollo.SchedulingPolicy, pod *v1.Pod, policySource apollo.DataSource) (apollo.PreprocessingType, string) {
 	// APOLLO에서 전처리 유형 가져오기
-	preprocessType := apollo.GetPreprocessingType(policy)
-	if preprocessType != apollo.PreprocessingType_PREPROCESSING_TYPE_UNKNOWN {
-		logger.Debug("[IOPatternBased] Got preprocessing type from APOLLO", "type", preprocessType.String())
-		return preprocessType
+	if policy != nil && policySource != apollo.DataSourceFallback {
+		preprocessType := apollo.GetPreprocessingType(policy)
+		if preprocessType != apollo.PreprocessingType_PREPROCESSING_TYPE_UNKNOWN {
+			return preprocessType, "APOLLO-PreprocessingType"
+		}
 	}
 
 	// Fallback: Pod 어노테이션/라벨에서 확인
 	if ptype, ok := pod.Annotations["ai-storage.keti/preprocessing-type"]; ok {
-		return p.parsePreprocessingType(ptype)
+		return p.parsePreprocessingType(ptype), "Pod-Annotations"
 	}
 	if ptype, ok := pod.Labels["preprocessing-type"]; ok {
-		return p.parsePreprocessingType(ptype)
+		return p.parsePreprocessingType(ptype), "Pod-Labels"
 	}
 
-	return apollo.PreprocessingType_PREPROCESSING_TYPE_UNKNOWN
+	return apollo.PreprocessingType_PREPROCESSING_TYPE_UNKNOWN, "UNKNOWN"
+}
+
+// getPreprocessingTypeFromPolicy gets preprocessing type from APOLLO policy (legacy wrapper)
+func (p *IOPatternBased) getPreprocessingTypeFromPolicy(policy *apollo.SchedulingPolicy, pod *v1.Pod) apollo.PreprocessingType {
+	ptype, _ := p.getPreprocessingTypeWithSource(policy, pod, apollo.DataSourceAPOLLO)
+	return ptype
 }
 
 // parsePreprocessingType converts string to PreprocessingType
@@ -269,12 +294,49 @@ func (p *IOPatternBased) parsePreprocessingType(ptype string) apollo.Preprocessi
 	}
 }
 
-// getIOCharacteristicsFromPolicy gets I/O characteristics from APOLLO policy
-func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.SchedulingPolicy, pod *v1.Pod) IOCharacteristics {
+// getIOCharacteristicsWithSource gets I/O characteristics from APOLLO policy with source tracking
+func (p *IOPatternBased) getIOCharacteristicsWithSource(policy *apollo.SchedulingPolicy, pod *v1.Pod, policySource apollo.DataSource) (IOCharacteristics, string) {
+	chars, _ := p.getIOCharacteristicsFromPolicyInternal(policy, pod, policySource)
+	source := "FALLBACK"
+
+	if policy != nil && policySource != apollo.DataSourceFallback {
+		preprocessType := apollo.GetPreprocessingType(policy)
+		if preprocessType != apollo.PreprocessingType_PREPROCESSING_TYPE_UNKNOWN {
+			source = "APOLLO-PreprocessingType"
+		} else {
+			ioPattern := apollo.GetIOPattern(policy)
+			if ioPattern != apollo.IOPattern_IO_PATTERN_UNKNOWN {
+				source = "APOLLO-IOPattern"
+			}
+		}
+	}
+
+	if source == "FALLBACK" {
+		// Check if got from CRD config
+		if _, ok := pod.Annotations["ai-storage.keti/preprocessing-type"]; ok {
+			source = "CRD-Config (via Pod annotation)"
+		} else if _, ok := pod.Labels["preprocessing-type"]; ok {
+			source = "CRD-Config (via Pod label)"
+		} else {
+			source = "Default"
+		}
+	}
+
+	return chars, source
+}
+
+// getIOCharacteristicsFromPolicyInternal is the internal implementation
+func (p *IOPatternBased) getIOCharacteristicsFromPolicyInternal(policy *apollo.SchedulingPolicy, pod *v1.Pod, policySource apollo.DataSource) (IOCharacteristics, string) {
 	// APOLLO에서 전처리 유형 확인
-	preprocessType := apollo.GetPreprocessingType(policy)
-	ioPattern := apollo.GetIOPattern(policy)
-	requiresCSD := apollo.RequiresCSD(policy)
+	preprocessType := apollo.PreprocessingType_PREPROCESSING_TYPE_UNKNOWN
+	ioPattern := apollo.IOPattern_IO_PATTERN_UNKNOWN
+	requiresCSD := false
+
+	if policy != nil && policySource != apollo.DataSourceFallback {
+		preprocessType = apollo.GetPreprocessingType(policy)
+		ioPattern = apollo.GetIOPattern(policy)
+		requiresCSD = apollo.RequiresCSD(policy)
+	}
 
 	// Try to get characteristics from CRD config
 	typeName := p.preprocessTypeToString(preprocessType)
@@ -288,7 +350,7 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 				DataExpansion:    cfg.DataExpansion,
 				SequentialAccess: cfg.SequentialAccess,
 				RequiresCSD:      requiresCSD || cfg.RequiresCSD,
-			}
+			}, "CRD-Config"
 		}
 	}
 
@@ -297,13 +359,13 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 	case apollo.PreprocessingType_PREPROCESSING_TYPE_AUGMENTATION:
 		return IOCharacteristics{
 			ReadIntensive:    true,
-			WriteIntensive:   true, // 데이터 증가
+			WriteIntensive:   true,
 			CPUIntensive:     true,
 			MemoryIntensive:  true,
-			DataExpansion:    5.0, // 5배 증가 가정
+			DataExpansion:    5.0,
 			SequentialAccess: true,
 			RequiresCSD:      requiresCSD,
-		}
+		}, "Hardcoded-Default"
 
 	case apollo.PreprocessingType_PREPROCESSING_TYPE_TRANSFORMATION:
 		return IOCharacteristics{
@@ -311,10 +373,10 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			WriteIntensive:   true,
 			CPUIntensive:     true,
 			MemoryIntensive:  false,
-			DataExpansion:    1.0, // 크기 유지
+			DataExpansion:    1.0,
 			SequentialAccess: true,
-			RequiresCSD:      requiresCSD || true, // 변환은 CSD 오프로드 가능
-		}
+			RequiresCSD:      requiresCSD || true,
+		}, "Hardcoded-Default"
 
 	case apollo.PreprocessingType_PREPROCESSING_TYPE_FILTERING:
 		return IOCharacteristics{
@@ -322,32 +384,32 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			WriteIntensive:   false,
 			CPUIntensive:     false,
 			MemoryIntensive:  false,
-			DataExpansion:    0.3, // 70% 감소 가정
+			DataExpansion:    0.3,
 			SequentialAccess: true,
-			RequiresCSD:      requiresCSD || true, // 필터링은 CSD 오프로드 가능
-		}
+			RequiresCSD:      requiresCSD || true,
+		}, "Hardcoded-Default"
 
 	case apollo.PreprocessingType_PREPROCESSING_TYPE_AGGREGATION:
 		return IOCharacteristics{
 			ReadIntensive:    true,
 			WriteIntensive:   false,
 			CPUIntensive:     true,
-			MemoryIntensive:  true, // 집계를 위한 메모리 필요
+			MemoryIntensive:  true,
 			DataExpansion:    0.01,
 			SequentialAccess: true,
-			RequiresCSD:      requiresCSD || true, // 집계는 CSD 오프로드 가능
-		}
+			RequiresCSD:      requiresCSD || true,
+		}, "Hardcoded-Default"
 
 	case apollo.PreprocessingType_PREPROCESSING_TYPE_SHARDING:
 		return IOCharacteristics{
 			ReadIntensive:    true,
-			WriteIntensive:   true, // 다중 출력
+			WriteIntensive:   true,
 			CPUIntensive:     false,
 			MemoryIntensive:  false,
 			DataExpansion:    1.0,
 			SequentialAccess: true,
 			RequiresCSD:      requiresCSD,
-		}
+		}, "Hardcoded-Default"
 
 	case apollo.PreprocessingType_PREPROCESSING_TYPE_FEATURE_EXTRACT:
 		return IOCharacteristics{
@@ -355,10 +417,10 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			WriteIntensive:   false,
 			CPUIntensive:     true,
 			MemoryIntensive:  true,
-			DataExpansion:    0.1, // 크게 감소
+			DataExpansion:    0.1,
 			SequentialAccess: true,
 			RequiresCSD:      requiresCSD || true,
-		}
+		}, "Hardcoded-Default"
 
 	case apollo.PreprocessingType_PREPROCESSING_TYPE_NORMALIZATION:
 		return IOCharacteristics{
@@ -369,12 +431,12 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 			DataExpansion:    1.0,
 			SequentialAccess: true,
 			RequiresCSD:      requiresCSD || true,
-		}
+		}, "Hardcoded-Default"
 	}
 
 	// APOLLO에서 I/O 패턴 정보로 특성 추론
 	if ioPattern != apollo.IOPattern_IO_PATTERN_UNKNOWN {
-		return p.inferCharacteristicsFromIOPattern(ioPattern, requiresCSD)
+		return p.inferCharacteristicsFromIOPattern(ioPattern, requiresCSD), "Inferred-from-IOPattern"
 	}
 
 	// 기본값
@@ -386,7 +448,13 @@ func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.Schedulin
 		DataExpansion:    1.0,
 		SequentialAccess: true,
 		RequiresCSD:      requiresCSD,
-	}
+	}, "Default"
+}
+
+// getIOCharacteristicsFromPolicy gets I/O characteristics from APOLLO policy (legacy wrapper)
+func (p *IOPatternBased) getIOCharacteristicsFromPolicy(policy *apollo.SchedulingPolicy, pod *v1.Pod) IOCharacteristics {
+	chars, _ := p.getIOCharacteristicsFromPolicyInternal(policy, pod, apollo.DataSourceAPOLLO)
+	return chars
 }
 
 // preprocessTypeToString converts PreprocessingType to CRD config key
@@ -521,12 +589,9 @@ func (p *IOPatternBased) isPreprocessingWorkloadFromPod(pod *v1.Pod) bool {
 
 // calculateResourceMatchScore scores based on resource requirements match
 func (p *IOPatternBased) calculateResourceMatchScore(chars IOCharacteristics, node *v1.Node) int64 {
-	// Get max score from CRD config
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetIOPatternConfig()
 	maxScore := int64(cfg.Scoring.ResourceMatchScoreMax)
-	if maxScore == 0 {
-		maxScore = 25 // default
-	}
 
 	score := int64(0)
 	labels := node.Labels
@@ -588,12 +653,9 @@ func (p *IOPatternBased) calculateResourceMatchScore(chars IOCharacteristics, no
 
 // calculateIOOptimizationScore scores based on I/O pattern optimization
 func (p *IOPatternBased) calculateIOOptimizationScore(chars IOCharacteristics, node *v1.Node) int64 {
-	// Get max score from CRD config
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetIOPatternConfig()
 	maxScore := int64(cfg.Scoring.IOOptimizationScoreMax)
-	if maxScore == 0 {
-		maxScore = 20 // default
-	}
 
 	score := int64(0)
 	labels := node.Labels
@@ -644,12 +706,9 @@ func (p *IOPatternBased) calculateIOOptimizationScore(chars IOCharacteristics, n
 
 // calculateExpansionScore scores based on data expansion/reduction handling
 func (p *IOPatternBased) calculateExpansionScore(chars IOCharacteristics, node *v1.Node) int64 {
-	// Get max score from CRD config
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetIOPatternConfig()
 	maxScore := int64(cfg.Scoring.ExpansionScoreMax)
-	if maxScore == 0 {
-		maxScore = 20 // default
-	}
 
 	score := maxScore / 2 // 기본 점수
 	annotations := node.Annotations
@@ -685,21 +744,31 @@ func (p *IOPatternBased) calculateExpansionScore(chars IOCharacteristics, node *
 	return score
 }
 
-// calculateCSDScore scores based on CSD offload capability
-// APOLLO에서 받은 CSD 요구사항 정보 사용
-func (p *IOPatternBased) calculateCSDScore(policy *apollo.SchedulingPolicy, chars IOCharacteristics, node *v1.Node) int64 {
-	// Get max score from CRD config
+// calculateCSDScoreWithSource scores based on CSD offload capability with source tracking
+func (p *IOPatternBased) calculateCSDScoreWithSource(policy *apollo.SchedulingPolicy, chars IOCharacteristics, node *v1.Node, policySource apollo.DataSource) (int64, string) {
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetIOPatternConfig()
 	maxScore := int64(cfg.Scoring.CSDScoreMax)
-	if maxScore == 0 {
-		maxScore = 20 // default
-	}
 
 	// APOLLO에서 CSD 요구사항 확인
-	requiresCSD := apollo.RequiresCSD(policy) || chars.RequiresCSD
+	requiresCSD := false
+	source := "Node-Labels"
+
+	if policy != nil && policySource != apollo.DataSourceFallback {
+		requiresCSD = apollo.RequiresCSD(policy)
+		if requiresCSD {
+			source = "APOLLO-RequiresCSD"
+		}
+	}
+
+	// Fallback to characteristics
+	if !requiresCSD && chars.RequiresCSD {
+		requiresCSD = true
+		source = "IOCharacteristics"
+	}
 
 	if !requiresCSD {
-		return maxScore / 2 // CSD 불필요 - 중립 점수
+		return maxScore / 2, "NEUTRAL (CSD not required)"
 	}
 
 	labels := node.Labels
@@ -712,22 +781,28 @@ func (p *IOPatternBased) calculateCSDScore(policy *apollo.SchedulingPolicy, char
 			if annotations != nil {
 				if csdOps, ok := annotations["ai-storage.keti/csd-compute-ops"]; ok {
 					if ops, err := strconv.ParseInt(csdOps, 10, 64); err == nil && ops > 0 {
-						return maxScore // 고성능 CSD
+						return maxScore, source + " + Node-CSD-HighPerf"
 					}
 				}
 			}
-			return maxScore * 9 / 10 // CSD 있음
+			return maxScore * 9 / 10, source + " + Node-CSD"
 		}
 	}
 
 	// 스토리지 레이어 노드 (CSD 없어도 가까움)
 	if labels != nil {
 		if layer, ok := labels["layer"]; ok && layer == "storage" {
-			return maxScore * 6 / 10
+			return maxScore * 6 / 10, source + " + Node-Storage-Layer"
 		}
 	}
 
-	return maxScore / 4 // CSD 없음
+	return maxScore / 4, source + " (no CSD)"
+}
+
+// calculateCSDScore scores based on CSD offload capability (legacy wrapper)
+func (p *IOPatternBased) calculateCSDScore(policy *apollo.SchedulingPolicy, chars IOCharacteristics, node *v1.Node) int64 {
+	score, _ := p.calculateCSDScoreWithSource(policy, chars, node, apollo.DataSourceAPOLLO)
+	return score
 }
 
 // hasCSD checks if node has CSD capability

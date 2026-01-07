@@ -143,33 +143,34 @@ func (s *StorageTierAware) Score(ctx context.Context, pod *v1.Pod, nodeName stri
 		return 0, utils.NewStatus(utils.Error, "node not found")
 	}
 
-	// Get scheduling policy from APOLLO
-	policy := s.getSchedulingPolicy(pod)
+	// Get scheduling policy from APOLLO with source tracking
+	policy, dataSource := s.getSchedulingPolicyWithSource(pod)
 
 	score := int64(0)
 
-	// 1. I/O 패턴 기반 스토리지 티어 매칭 (0-40점)
 	// APOLLO가 분석한 I/O 패턴 사용
-	ioPatternScore := s.calculateIOPatternScore(policy, pod, node)
+	ioPatternScore, ioPatternSource := s.calculateIOPatternScoreWithSource(policy, pod, node, dataSource)
 	score += ioPatternScore
 
-	// 2. 파이프라인 단계별 최적 스토리지 매칭 (0-30점)
-	pipelineScore := s.calculatePipelineStageScore(policy, pod, node)
+	// 2. 파이프라인 단계별 최적 스토리지 매칭 (
+	pipelineScore, pipelineSource := s.calculatePipelineStageScoreWithSource(policy, pod, node, dataSource)
 	score += pipelineScore
 
 	// 3. IOPS/처리량 요구사항 충족도 (0-20점)
 	// APOLLO에서 받은 최소 요구사항 사용
-	performanceScore := s.calculatePerformanceScore(policy, pod, node)
+	performanceScore, performanceSource := s.calculatePerformanceScoreWithSource(policy, pod, node, dataSource)
 	score += performanceScore
 
-	// 4. 스토리지 가용 용량 (0-10점)
+	// 4. 스토리지 가용 용량 (0-10점) - 항상 Node annotations에서 가져옴
 	capacityScore := s.calculateCapacityScore(pod, node)
 	score += capacityScore
 
 	logger.Info("[StorageTierAware] Node scored",
 		"node", nodeName, "score", score,
-		"ioPatternScore", ioPatternScore, "pipelineScore", pipelineScore,
-		"performanceScore", performanceScore, "capacityScore", capacityScore)
+		"ioPatternScore", ioPatternScore, "ioPatternSource", ioPatternSource,
+		"pipelineScore", pipelineScore, "pipelineSource", pipelineSource,
+		"performanceScore", performanceScore, "performanceSource", performanceSource,
+		"capacityScore", capacityScore, "capacitySource", "Node-Annotations")
 
 	return score, utils.NewStatus(utils.Success, "")
 }
@@ -182,24 +183,28 @@ func (s *StorageTierAware) NormalizeScore(ctx context.Context, pod *v1.Pod, scor
 	return utils.NewStatus(utils.Success, "")
 }
 
-// getSchedulingPolicy fetches scheduling policy from APOLLO
-func (s *StorageTierAware) getSchedulingPolicy(pod *v1.Pod) *apollo.SchedulingPolicy {
+// getSchedulingPolicyWithSource fetches scheduling policy from APOLLO with source tracking
+func (s *StorageTierAware) getSchedulingPolicyWithSource(pod *v1.Pod) (*apollo.SchedulingPolicy, apollo.DataSource) {
 	if s.apolloClient == nil {
-		return nil
+		logger.Info("[StorageTierAware-DataSource] FALLBACK - No APOLLO client, using Pod labels/annotations",
+			"namespace", pod.Namespace, "pod", pod.Name)
+		return nil, apollo.DataSourceFallback
 	}
 
-	policy, err := s.apolloClient.GetSchedulingPolicy(
+	result := s.apolloClient.GetSchedulingPolicyWithSource(
 		pod.Namespace,
 		pod.Name,
 		string(pod.UID),
 		pod.Labels,
 		pod.Annotations,
 	)
-	if err != nil {
-		logger.Warn("[StorageTierAware] Failed to get APOLLO policy", "error", err.Error())
-		return nil
-	}
 
+	return result.Policy, result.Source
+}
+
+// getSchedulingPolicy fetches scheduling policy from APOLLO (legacy wrapper)
+func (s *StorageTierAware) getSchedulingPolicy(pod *v1.Pod) *apollo.SchedulingPolicy {
+	policy, _ := s.getSchedulingPolicyWithSource(pod)
 	return policy
 }
 
@@ -329,28 +334,54 @@ func (s *StorageTierAware) getHighestStorageTier(node *v1.Node) StorageTier {
 	return highest
 }
 
-// calculateIOPatternScore scores based on I/O pattern and storage tier match
-// APOLLO가 분석한 I/O 패턴 사용
-func (s *StorageTierAware) calculateIOPatternScore(policy *apollo.SchedulingPolicy, pod *v1.Pod, node *v1.Node) int64 {
-	// Get max score from CRD config
+// calculateIOPatternScoreWithSource scores based on I/O pattern and storage tier match with source tracking
+func (s *StorageTierAware) calculateIOPatternScoreWithSource(policy *apollo.SchedulingPolicy, pod *v1.Pod, node *v1.Node, policySource apollo.DataSource) (int64, string) {
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetStorageTierConfig()
 	maxScore := int64(cfg.Scoring.IOPatternScoreMax)
-	if maxScore == 0 {
-		maxScore = 40 // default
-	}
 
 	// Get tier scores from CRD config
 	tiersCfg := configmanager.GetManager().GetStorageTiersConfig()
 
 	highestTier := s.getHighestStorageTier(node)
 	if highestTier == StorageTierUnknown {
-		return maxScore / 2 // 중립 점수
+		return maxScore / 2, "NEUTRAL (no tier info)"
 	}
 
-	// Get I/O pattern from APOLLO
+	// Get I/O pattern from APOLLO or fallback
 	ioPattern := apollo.IOPattern_IO_PATTERN_UNKNOWN
-	if policy != nil {
+	source := "FALLBACK"
+
+	if policy != nil && policySource != apollo.DataSourceFallback {
 		ioPattern = apollo.GetIOPattern(policy)
+		if ioPattern != apollo.IOPattern_IO_PATTERN_UNKNOWN {
+			source = "APOLLO-IOPattern"
+		}
+	}
+
+	// Fallback to pod annotations if no APOLLO data
+	if ioPattern == apollo.IOPattern_IO_PATTERN_UNKNOWN {
+		if pattern, ok := pod.Annotations["ai-storage.keti/io-pattern"]; ok {
+			source = "Pod-Annotations"
+			switch strings.ToLower(pattern) {
+			case "random":
+				ioPattern = apollo.IOPattern_IO_PATTERN_RANDOM
+			case "sequential":
+				ioPattern = apollo.IOPattern_IO_PATTERN_SEQUENTIAL
+			case "bursty":
+				ioPattern = apollo.IOPattern_IO_PATTERN_BURSTY
+			case "read-heavy", "readheavy":
+				ioPattern = apollo.IOPattern_IO_PATTERN_READ_HEAVY
+			case "write-heavy", "writeheavy":
+				ioPattern = apollo.IOPattern_IO_PATTERN_WRITE_HEAVY
+			case "balanced":
+				ioPattern = apollo.IOPattern_IO_PATTERN_BALANCED
+			}
+		}
+	}
+
+	if ioPattern == apollo.IOPattern_IO_PATTERN_UNKNOWN {
+		return maxScore / 2, "NEUTRAL (unknown pattern)"
 	}
 
 	// Helper to get tier score from config
@@ -396,7 +427,7 @@ func (s *StorageTierAware) calculateIOPatternScore(policy *apollo.SchedulingPoli
 				return maxScore / 2
 			}
 		case StorageTierCSD:
-			return maxScore / 2 // CSD has different scoring logic
+			return maxScore / 2
 		default:
 			return maxScore / 4
 		}
@@ -405,72 +436,73 @@ func (s *StorageTierAware) calculateIOPatternScore(policy *apollo.SchedulingPoli
 	// I/O 패턴별 최적 스토리지 티어 매칭
 	switch ioPattern {
 	case apollo.IOPattern_IO_PATTERN_RANDOM:
-		return getTierScore(highestTier, "random")
-
+		return getTierScore(highestTier, "random"), source
 	case apollo.IOPattern_IO_PATTERN_SEQUENTIAL:
-		return getTierScore(highestTier, "sequential")
-
+		return getTierScore(highestTier, "sequential"), source
 	case apollo.IOPattern_IO_PATTERN_BURSTY:
-		// 버스트 쓰기는 빠른 스토리지 필수
 		switch highestTier {
 		case StorageTierNVMe, StorageTierMemory:
-			return maxScore
+			return maxScore, source
 		case StorageTierSSD:
-			return maxScore * 5 / 8
+			return maxScore * 5 / 8, source
 		case StorageTierHDD:
-			return maxScore / 4 // HDD는 버스트 쓰기에 부적합
+			return maxScore / 4, source
 		case StorageTierCSD:
-			return maxScore / 2
+			return maxScore / 2, source
 		}
-
 	case apollo.IOPattern_IO_PATTERN_READ_HEAVY:
-		return getTierScore(highestTier, "readHeavy")
-
+		return getTierScore(highestTier, "readHeavy"), source
 	case apollo.IOPattern_IO_PATTERN_WRITE_HEAVY:
-		return getTierScore(highestTier, "writeHeavy")
-
+		return getTierScore(highestTier, "writeHeavy"), source
 	case apollo.IOPattern_IO_PATTERN_BALANCED:
-		// 혼합 패턴은 전반적으로 빠른 스토리지 선호
 		switch highestTier {
 		case StorageTierNVMe, StorageTierMemory:
-			return maxScore
+			return maxScore, source
 		case StorageTierSSD:
-			return maxScore * 3 / 4
+			return maxScore * 3 / 4, source
 		case StorageTierCSD:
-			return maxScore / 2
+			return maxScore / 2, source
 		case StorageTierHDD:
-			return maxScore * 3 / 8
+			return maxScore * 3 / 8, source
 		}
 	}
 
-	return maxScore / 2 // 기본 점수
+	return maxScore / 2, source
 }
 
-// calculatePipelineStageScore scores based on pipeline stage requirements
-func (s *StorageTierAware) calculatePipelineStageScore(policy *apollo.SchedulingPolicy, pod *v1.Pod, node *v1.Node) int64 {
-	// Get max score from CRD config
+// calculateIOPatternScore scores based on I/O pattern and storage tier match (legacy wrapper)
+func (s *StorageTierAware) calculateIOPatternScore(policy *apollo.SchedulingPolicy, pod *v1.Pod, node *v1.Node) int64 {
+	score, _ := s.calculateIOPatternScoreWithSource(policy, pod, node, apollo.DataSourceAPOLLO)
+	return score
+}
+
+// calculatePipelineStageScoreWithSource scores based on pipeline stage requirements with source tracking
+func (s *StorageTierAware) calculatePipelineStageScoreWithSource(policy *apollo.SchedulingPolicy, pod *v1.Pod, node *v1.Node, policySource apollo.DataSource) (int64, string) {
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetStorageTierConfig()
 	maxScore := int64(cfg.Scoring.PipelineStageScoreMax)
-	if maxScore == 0 {
-		maxScore = 30 // default
-	}
-
-	// Get CSD bonus from config
-	tiersCfg := configmanager.GetManager().GetStorageTiersConfig()
 
 	highestTier := s.getHighestStorageTier(node)
 
-	// Get pipeline step from APOLLO
+	// Get pipeline step from APOLLO or fallback
 	pipelineStep := ""
-	if policy != nil {
+	source := "FALLBACK"
+
+	if policy != nil && policySource != apollo.DataSourceFallback {
 		pipelineStep = apollo.GetPipelineStep(policy)
+		if pipelineStep != "" {
+			source = "APOLLO-PipelineStep"
+		}
 	}
 	if pipelineStep == "" {
 		pipelineStep = s.getPipelineStageFromPod(pod)
+		if pipelineStep != "" {
+			source = "Pod-Labels/Annotations"
+		}
 	}
 
 	if pipelineStep == "" {
-		return maxScore / 2 // 기본 점수
+		return maxScore / 2, "NEUTRAL (no pipeline info)"
 	}
 
 	hasCSD := false
@@ -483,67 +515,66 @@ func (s *StorageTierAware) calculatePipelineStageScore(policy *apollo.Scheduling
 
 	switch pipelineStep {
 	case "preprocessing", "preprocess", "data-loading":
-		// 전처리: 대용량 순차 읽기 → SSD/HDD OK, CSD 최적 (데이터 처리 오프로드)
 		if hasCSD {
-			return maxScore // CSD가 있으면 전처리 오프로드 가능 + bonus
+			return maxScore, source
 		}
 		switch highestTier {
 		case StorageTierNVMe:
-			return maxScore * 5 / 6
+			return maxScore * 5 / 6, source
 		case StorageTierSSD:
-			return maxScore * 5 / 6
+			return maxScore * 5 / 6, source
 		case StorageTierHDD:
-			return maxScore * 2 / 3 // 순차 읽기라 HDD도 충분
+			return maxScore * 2 / 3, source
 		default:
-			return maxScore / 2
+			return maxScore / 2, source
 		}
 
 	case "training", "train":
-		// 학습: 랜덤 읽기 + 체크포인트 쓰기 → NVMe/SSD 필요
 		switch highestTier {
 		case StorageTierNVMe, StorageTierMemory:
-			return maxScore
+			return maxScore, source
 		case StorageTierSSD:
-			return maxScore * 5 / 6
+			return maxScore * 5 / 6, source
 		case StorageTierCSD:
-			return maxScore * 2 / 3
+			return maxScore * 2 / 3, source
 		case StorageTierHDD:
-			return maxScore / 3
+			return maxScore / 3, source
 		default:
-			return maxScore / 2
+			return maxScore / 2, source
 		}
 
 	case "evaluation", "eval", "validation":
-		// 평가: 랜덤 읽기 중심 → SSD 충분
 		switch highestTier {
 		case StorageTierNVMe, StorageTierMemory:
-			return maxScore
+			return maxScore, source
 		case StorageTierSSD:
-			return maxScore * 9 / 10
+			return maxScore * 9 / 10, source
 		case StorageTierCSD:
-			return maxScore * 2 / 3
+			return maxScore * 2 / 3, source
 		case StorageTierHDD:
-			return maxScore / 2
+			return maxScore / 2, source
 		default:
-			return maxScore / 2
+			return maxScore / 2, source
 		}
 
 	case "serving", "inference":
-		// 서빙: 저지연 랜덤 읽기 → NVMe 필수
 		switch highestTier {
 		case StorageTierNVMe, StorageTierMemory:
-			return maxScore
+			return maxScore, source
 		case StorageTierSSD:
-			return maxScore * 2 / 3
+			return maxScore * 2 / 3, source
 		default:
-			return maxScore / 3
+			return maxScore / 3, source
 		}
 	}
 
-	// Add CSD bonus for filtering/transformation workloads
-	_ = tiersCfg // Will be used for CSD bonus in extended implementation
+	return maxScore / 2, source
+}
 
-	return maxScore / 2
+// calculatePipelineStageScore scores based on pipeline stage requirements (legacy wrapper)
+func (s *StorageTierAware) calculatePipelineStageScore(policy *apollo.SchedulingPolicy, pod *v1.Pod, node *v1.Node) int64 {
+	score, _ := s.calculatePipelineStageScoreWithSource(policy, pod, node, apollo.DataSourceAPOLLO)
+	return score
 }
 
 // getPipelineStageFromPod extracts pipeline stage from pod (fallback)
@@ -560,31 +591,50 @@ func (s *StorageTierAware) getPipelineStageFromPod(pod *v1.Pod) string {
 	return ""
 }
 
-// calculatePerformanceScore scores based on IOPS/throughput requirements
-// APOLLO에서 받은 최소 요구사항 사용
-func (s *StorageTierAware) calculatePerformanceScore(policy *apollo.SchedulingPolicy, pod *v1.Pod, node *v1.Node) int64 {
-	// Get max score from CRD config
+// calculatePerformanceScoreWithSource scores based on IOPS/throughput requirements with source tracking
+func (s *StorageTierAware) calculatePerformanceScoreWithSource(policy *apollo.SchedulingPolicy, pod *v1.Pod, node *v1.Node, policySource apollo.DataSource) (int64, string) {
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetStorageTierConfig()
 	maxScore := int64(cfg.Scoring.IOPSScoreMax)
-	if maxScore == 0 {
-		maxScore = 20 // default
-	}
 
-	// Get required IOPS/throughput from APOLLO
+	// Get required IOPS/throughput from APOLLO or fallback
 	requiredIOPS := int64(0)
 	requiredThroughput := int64(0)
+	iopsSource := "NEUTRAL"
+	throughputSource := "NEUTRAL"
 
-	if policy != nil {
+	if policy != nil && policySource != apollo.DataSourceFallback {
 		requiredIOPS = apollo.GetMinIOPS(policy)
 		requiredThroughput = apollo.GetMinThroughput(policy)
+		if requiredIOPS > 0 {
+			iopsSource = "APOLLO-MinIOPS"
+		}
+		if requiredThroughput > 0 {
+			throughputSource = "APOLLO-MinThroughput"
+		}
 	}
 
 	// Fallback to pod annotations
 	if requiredIOPS == 0 {
 		requiredIOPS = s.getRequiredIOPSFromPod(pod)
+		if requiredIOPS > 0 {
+			iopsSource = "Pod-Annotations"
+		}
 	}
 	if requiredThroughput == 0 {
 		requiredThroughput = s.getRequiredThroughputFromPod(pod)
+		if requiredThroughput > 0 {
+			throughputSource = "Pod-Annotations"
+		}
+	}
+
+	// Determine primary source
+	source := iopsSource
+	if source == "NEUTRAL" {
+		source = throughputSource
+	}
+	if source == "NEUTRAL" {
+		source = "Node-Annotations (tier estimate)"
 	}
 
 	// Get node's storage performance
@@ -625,6 +675,12 @@ func (s *StorageTierAware) calculatePerformanceScore(policy *apollo.SchedulingPo
 		score = maxScore
 	}
 
+	return score, source
+}
+
+// calculatePerformanceScore scores based on IOPS/throughput requirements (legacy wrapper)
+func (s *StorageTierAware) calculatePerformanceScore(policy *apollo.SchedulingPolicy, pod *v1.Pod, node *v1.Node) int64 {
+	score, _ := s.calculatePerformanceScoreWithSource(policy, pod, node, apollo.DataSourceAPOLLO)
 	return score
 }
 
@@ -700,12 +756,9 @@ func (s *StorageTierAware) getNodeThroughput(node *v1.Node) int64 {
 
 // calculateCapacityScore scores based on available storage capacity
 func (s *StorageTierAware) calculateCapacityScore(pod *v1.Pod, node *v1.Node) int64 {
-	// Get max score from CRD config
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetStorageTierConfig()
 	maxScore := int64(cfg.Scoring.CapacityScoreMax)
-	if maxScore == 0 {
-		maxScore = 10 // default
-	}
 
 	annotations := node.Annotations
 	if annotations == nil {

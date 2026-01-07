@@ -102,32 +102,55 @@ func (d *DataLocalityAware) Score(ctx context.Context, pod *v1.Pod, nodeName str
 		return 0, utils.NewStatus(utils.Error, "node not found")
 	}
 
-	// Get scheduling policy from APOLLO
-	policy := d.getSchedulingPolicy(pod)
+	// Get scheduling policy from APOLLO with source tracking
+	policy, dataSource := d.getSchedulingPolicyWithSource(pod)
 
-	// 전처리 워크로드가 아니면 기본 점수
-	if !apollo.IsPreprocessingWorkload(policy) && !d.isPreprocessingWorkloadFromPod(pod) {
+	// 전처리 워크로드 여부 판단 및 데이터 소스 로깅
+	isPreprocessFromAPOLLO := apollo.IsPreprocessingWorkload(policy)
+	isPreprocessFromPod := d.isPreprocessingWorkloadFromPod(pod)
+
+	if !isPreprocessFromAPOLLO && !isPreprocessFromPod {
 		return 50, utils.NewStatus(utils.Success, "")
+	}
+
+	// 데이터 소스 로깅 - 전처리 워크로드 판단 근거
+	if isPreprocessFromAPOLLO {
+		logger.Info("[DataLocalityAware-DataSource] Preprocessing detected from APOLLO",
+			"namespace", pod.Namespace, "pod", pod.Name, "source", dataSource)
+	} else if isPreprocessFromPod {
+		logger.Info("[DataLocalityAware-DataSource] Preprocessing detected from Pod labels/annotations (FALLBACK)",
+			"namespace", pod.Namespace, "pod", pod.Name,
+			"pipeline-step", pod.Labels["pipeline-step"],
+			"stage", pod.Labels["stage"],
+			"workload-stage", pod.Annotations["ai-storage.keti/workload-stage"])
 	}
 
 	score := int64(0)
 
-	apolloScore := d.calculateAPOLLOScore(policy, nodeName)
+	// 1. APOLLO NodePreference 점수 (0-30점)
+	// APOLLO가 분석한 데이터 로컬리티 기반 노드 선호도
+	apolloScore, apolloScoreSource := d.calculateAPOLLOScoreWithSource(policy, nodeName, dataSource)
 	score += apolloScore
 
+	// 2. PVC 로컬리티 점수 (0-30점) - 항상 K8s API에서 가져옴
 	pvcScore := d.calculatePVCLocalityScore(pod, node)
 	score += pvcScore
 
-	cacheScore := d.calculateDataCacheScore(policy, node)
+	// 3. 데이터셋 캐시 점수 (0-20점)
+	// APOLLO에서 받은 캐시 노드 정보 사용
+	cacheScore, cacheScoreSource := d.calculateDataCacheScoreWithSource(policy, node, dataSource)
 	score += cacheScore
 
+	// 4. 네트워크 토폴로지 점수 (0-20점) - Pod annotations에서 가져옴
 	topologyScore := d.calculateTopologyScore(pod, node)
 	score += topologyScore
 
 	logger.Info("[DataLocalityAware] Node scored",
 		"node", nodeName, "score", score,
-		"apolloScore", apolloScore, "pvcScore", pvcScore,
-		"cacheScore", cacheScore, "topologyScore", topologyScore)
+		"apolloScore", apolloScore, "apolloScoreSource", apolloScoreSource,
+		"pvcScore", pvcScore, "pvcScoreSource", "K8s-API",
+		"cacheScore", cacheScore, "cacheScoreSource", cacheScoreSource,
+		"topologyScore", topologyScore, "topologyScoreSource", "Pod-Annotations")
 
 	return score, utils.NewStatus(utils.Success, "")
 }
@@ -140,56 +163,63 @@ func (d *DataLocalityAware) NormalizeScore(ctx context.Context, pod *v1.Pod, sco
 	return utils.NewStatus(utils.Success, "")
 }
 
-// getSchedulingPolicy fetches scheduling policy from APOLLO
-func (d *DataLocalityAware) getSchedulingPolicy(pod *v1.Pod) *apollo.SchedulingPolicy {
+// getSchedulingPolicyWithSource fetches scheduling policy from APOLLO with source tracking
+func (d *DataLocalityAware) getSchedulingPolicyWithSource(pod *v1.Pod) (*apollo.SchedulingPolicy, apollo.DataSource) {
 	if d.apolloClient == nil {
-		return nil
+		logger.Info("[DataLocalityAware-DataSource] FALLBACK - No APOLLO client, using Pod labels/annotations",
+			"namespace", pod.Namespace, "pod", pod.Name)
+		return nil, apollo.DataSourceFallback
 	}
 
-	policy, err := d.apolloClient.GetSchedulingPolicy(
+	result := d.apolloClient.GetSchedulingPolicyWithSource(
 		pod.Namespace,
 		pod.Name,
 		string(pod.UID),
 		pod.Labels,
 		pod.Annotations,
 	)
-	if err != nil {
-		logger.Warn("[DataLocalityAware] Failed to get APOLLO policy", "error", err.Error())
-		return nil
-	}
 
+	return result.Policy, result.Source
+}
+
+// getSchedulingPolicy fetches scheduling policy from APOLLO (legacy wrapper)
+func (d *DataLocalityAware) getSchedulingPolicy(pod *v1.Pod) *apollo.SchedulingPolicy {
+	policy, _ := d.getSchedulingPolicyWithSource(pod)
 	return policy
 }
 
-// calculateAPOLLOScore calculates score based on APOLLO's node preferences
-func (d *DataLocalityAware) calculateAPOLLOScore(policy *apollo.SchedulingPolicy, nodeName string) int64 {
-	// Get max score from CRD config
+// calculateAPOLLOScoreWithSource calculates score based on APOLLO's node preferences with source tracking
+func (d *DataLocalityAware) calculateAPOLLOScoreWithSource(policy *apollo.SchedulingPolicy, nodeName string, policySource apollo.DataSource) (int64, string) {
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetDataLocalityConfig()
 	maxScore := int64(cfg.Scoring.ApolloScoreMax)
-	if maxScore == 0 {
-		maxScore = 30 // default
-	}
 
-	if policy == nil {
-		return maxScore / 2 // 중립 점수
+	if policy == nil || policySource == apollo.DataSourceFallback {
+		return maxScore / 2, "NEUTRAL (no APOLLO data)" // 중립 점수
 	}
 
 	// APOLLO NodePreference에서 이 노드의 점수 확인
 	prefScore := apollo.GetNodePreferenceScore(policy, nodeName)
 	if prefScore > 0 {
 		// APOLLO 점수를 0-maxScore 범위로 매핑 (APOLLO는 0-100)
-		return int64(prefScore) * maxScore / 100
+		return int64(prefScore) * maxScore / 100, "APOLLO-NodePreference"
 	}
 
 	// 데이터 위치 노드인지 확인
 	dataLocations := apollo.GetDataLocations(policy)
 	for _, loc := range dataLocations {
 		if loc == nodeName {
-			return maxScore // 데이터가 있는 노드는 최고 점수
+			return maxScore, "APOLLO-DataLocation" // 데이터가 있는 노드는 최고 점수
 		}
 	}
 
-	return maxScore / 3 // 기본 점수
+	return maxScore / 3, "APOLLO-Default" // 기본 점수
+}
+
+// calculateAPOLLOScore calculates score based on APOLLO's node preferences (legacy wrapper)
+func (d *DataLocalityAware) calculateAPOLLOScore(policy *apollo.SchedulingPolicy, nodeName string) int64 {
+	score, _ := d.calculateAPOLLOScoreWithSource(policy, nodeName, apollo.DataSourceAPOLLO)
+	return score
 }
 
 // isPreprocessingWorkloadFromPod checks pod labels/annotations directly (fallback)
@@ -219,12 +249,9 @@ func (d *DataLocalityAware) isPreprocessingWorkloadFromPod(pod *v1.Pod) bool {
 
 // calculatePVCLocalityScore calculates score based on PVC locality
 func (d *DataLocalityAware) calculatePVCLocalityScore(pod *v1.Pod, node *v1.Node) int64 {
-	// Get max score from CRD config
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetDataLocalityConfig()
 	maxScore := int64(cfg.Scoring.PVCLocalityScoreMax)
-	if maxScore == 0 {
-		maxScore = 30 // default
-	}
 
 	if len(pod.Spec.Volumes) == 0 {
 		return maxScore / 2 // No volumes, neutral score
@@ -362,24 +389,21 @@ func (d *DataLocalityAware) canAccessPVC(namespace, pvcName, nodeName string) bo
 	return true // Unbound - can be bound to this node
 }
 
-// calculateDataCacheScore scores based on cached datasets on the node
+// calculateDataCacheScoreWithSource scores based on cached datasets on the node with source tracking
 // APOLLO에서 받은 캐시 노드 정보 사용
-func (d *DataLocalityAware) calculateDataCacheScore(policy *apollo.SchedulingPolicy, node *v1.Node) int64 {
-	// Get max score from CRD config
+func (d *DataLocalityAware) calculateDataCacheScoreWithSource(policy *apollo.SchedulingPolicy, node *v1.Node, policySource apollo.DataSource) (int64, string) {
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetDataLocalityConfig()
 	maxScore := int64(cfg.Scoring.CacheScoreMax)
-	if maxScore == 0 {
-		maxScore = 20 // default
-	}
 
 	score := int64(0)
 
 	// APOLLO에서 캐시된 노드 정보 확인
-	if policy != nil {
+	if policy != nil && policySource != apollo.DataSourceFallback {
 		cachedNodes := apollo.GetCachedNodes(policy)
 		for _, cachedNode := range cachedNodes {
 			if cachedNode == node.Name {
-				return maxScore // 캐시된 노드는 최고 점수
+				return maxScore, "APOLLO-CachedNodes" // 캐시된 노드는 최고 점수
 			}
 		}
 	}
@@ -387,18 +411,22 @@ func (d *DataLocalityAware) calculateDataCacheScore(policy *apollo.SchedulingPol
 	// 노드 어노테이션에서 캐시 정보 확인 (fallback)
 	annotations := node.Annotations
 	if annotations == nil {
-		return maxScore / 4
+		return maxScore / 4, "Node-Annotations (none)"
 	}
+
+	source := "Node-Annotations"
 
 	// Check for cached dataset annotations (set by insight-scope)
 	if _, ok := annotations["ai-storage.keti/cached-datasets"]; ok {
 		score = maxScore * 3 / 4
+		source = "Node-Annotations (cached-datasets)"
 	}
 
 	// Check for warm data indicator
 	if warmData, ok := annotations["ai-storage.keti/data-temperature"]; ok {
 		if warmData == "hot" || warmData == "warm" {
 			score += maxScore / 4
+			source = "Node-Annotations (data-temperature)"
 		}
 	}
 
@@ -406,17 +434,24 @@ func (d *DataLocalityAware) calculateDataCacheScore(policy *apollo.SchedulingPol
 		score = maxScore
 	}
 
+	if score == 0 {
+		return maxScore / 4, "Node-Annotations (default)"
+	}
+
+	return score, source
+}
+
+// calculateDataCacheScore scores based on cached datasets on the node (legacy wrapper)
+func (d *DataLocalityAware) calculateDataCacheScore(policy *apollo.SchedulingPolicy, node *v1.Node) int64 {
+	score, _ := d.calculateDataCacheScoreWithSource(policy, node, apollo.DataSourceAPOLLO)
 	return score
 }
 
 // calculateTopologyScore scores based on network topology proximity
 func (d *DataLocalityAware) calculateTopologyScore(pod *v1.Pod, node *v1.Node) int64 {
-	// Get max score from CRD config
+	// Get max score from CRD config (defaults applied by configmanager)
 	cfg := configmanager.GetManager().GetDataLocalityConfig()
 	maxScore := int64(cfg.Scoring.TopologyScoreMax)
-	if maxScore == 0 {
-		maxScore = 20 // default
-	}
 
 	labels := node.Labels
 	if labels == nil {

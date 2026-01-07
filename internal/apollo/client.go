@@ -26,6 +26,21 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// DataSource indicates where the data came from
+type DataSource string
+
+const (
+	DataSourceAPOLLO   DataSource = "APOLLO"   // Data from APOLLO gRPC
+	DataSourceCache    DataSource = "CACHE"    // Data from local cache
+	DataSourceFallback DataSource = "FALLBACK" // Fallback (empty policy, use Pod labels)
+)
+
+// PolicyResult wraps the policy with source information
+type PolicyResult struct {
+	Policy *SchedulingPolicy
+	Source DataSource
+}
+
 // Client is the APOLLO gRPC client for scheduler
 type Client struct {
 	endpoint  string
@@ -135,6 +150,13 @@ func (c *Client) IsConnected() bool {
 // GetSchedulingPolicy retrieves the full scheduling policy from APOLLO
 // 이 함수가 핵심! APOLLO로부터 워크로드 분석 결과를 받아옴
 func (c *Client) GetSchedulingPolicy(podNamespace, podName, podUID string, labels, annotations map[string]string) (*SchedulingPolicy, error) {
+	result := c.GetSchedulingPolicyWithSource(podNamespace, podName, podUID, labels, annotations)
+	return result.Policy, nil
+}
+
+// GetSchedulingPolicyWithSource retrieves scheduling policy with data source information
+// 데이터가 어디서 왔는지 (APOLLO/CACHE/FALLBACK) 명확하게 추적
+func (c *Client) GetSchedulingPolicyWithSource(podNamespace, podName, podUID string, labels, annotations map[string]string) *PolicyResult {
 	cacheKey := fmt.Sprintf("%s/%s", podNamespace, podName)
 
 	// Check cache first
@@ -143,7 +165,10 @@ func (c *Client) GetSchedulingPolicy(podNamespace, podName, podUID string, label
 		if updateAt, ok := c.cacheUpdateAt[cacheKey]; ok {
 			if time.Since(updateAt) < c.cacheExpiry {
 				c.cacheMu.RUnlock()
-				return policy, nil
+				logger.Info("[APOLLO-DataSource] Policy retrieved from CACHE",
+					"namespace", podNamespace, "pod", podName,
+					"cache_age_seconds", int(time.Since(updateAt).Seconds()))
+				return &PolicyResult{Policy: policy, Source: DataSourceCache}
 			}
 		}
 	}
@@ -152,8 +177,9 @@ func (c *Client) GetSchedulingPolicy(podNamespace, podName, podUID string, label
 	// Ensure connection
 	if !c.IsConnected() {
 		if err := c.Connect(); err != nil {
-			logger.Warn("[APOLLO-Client] Connection failed, returning empty policy", "error", err.Error())
-			return c.createEmptyPolicy(podNamespace, podName), nil
+			logger.Warn("[APOLLO-DataSource] FALLBACK - Connection failed, will use Pod labels/annotations",
+				"namespace", podNamespace, "pod", podName, "error", err.Error())
+			return &PolicyResult{Policy: c.createEmptyPolicy(podNamespace, podName), Source: DataSourceFallback}
 		}
 	}
 
@@ -171,17 +197,20 @@ func (c *Client) GetSchedulingPolicy(podNamespace, podName, podUID string, label
 
 	policy, err := c.client.GetSchedulingPolicy(ctx, req)
 	if err != nil {
-		logger.Warn("[APOLLO-Client] Failed to get scheduling policy", "namespace", podNamespace, "pod", podName, "error", err.Error())
+		logger.Warn("[APOLLO-DataSource] FALLBACK - gRPC call failed, will use Pod labels/annotations",
+			"namespace", podNamespace, "pod", podName, "error", err.Error())
 
 		// Return cached policy if available
 		c.cacheMu.RLock()
 		if cached, ok := c.policyCache[cacheKey]; ok {
 			c.cacheMu.RUnlock()
-			return cached, nil
+			logger.Info("[APOLLO-DataSource] Using stale CACHE after gRPC failure",
+				"namespace", podNamespace, "pod", podName)
+			return &PolicyResult{Policy: cached, Source: DataSourceCache}
 		}
 		c.cacheMu.RUnlock()
 
-		return c.createEmptyPolicy(podNamespace, podName), nil
+		return &PolicyResult{Policy: c.createEmptyPolicy(podNamespace, podName), Source: DataSourceFallback}
 	}
 
 	// Update cache
@@ -190,13 +219,16 @@ func (c *Client) GetSchedulingPolicy(podNamespace, podName, podUID string, label
 	c.cacheUpdateAt[cacheKey] = time.Now()
 	c.cacheMu.Unlock()
 
-	logger.Info("[APOLLO-Client] Got scheduling policy",
+	logger.Info("[APOLLO-DataSource] SUCCESS - Policy retrieved from APOLLO gRPC",
 		"namespace", podNamespace, "pod", podName,
 		"stage", c.getStageName(policy),
 		"io_pattern", c.getIOPatternName(policy),
-		"storage_class", c.getStorageClassName(policy))
+		"storage_class", c.getStorageClassName(policy),
+		"preprocessing_type", c.getPreprocessingTypeName(policy),
+		"has_node_preferences", len(policy.NodePreferences) > 0,
+		"data_locations", policy.WorkloadSignature.GetDataLocations())
 
-	return policy, nil
+	return &PolicyResult{Policy: policy, Source: DataSourceAPOLLO}
 }
 
 // createEmptyPolicy creates an empty policy for graceful degradation
@@ -229,6 +261,13 @@ func (c *Client) getIOPatternName(policy *SchedulingPolicy) string {
 func (c *Client) getStorageClassName(policy *SchedulingPolicy) string {
 	if policy.StorageRequirements != nil {
 		return policy.StorageRequirements.StorageClass.String()
+	}
+	return "unknown"
+}
+
+func (c *Client) getPreprocessingTypeName(policy *SchedulingPolicy) string {
+	if policy.WorkloadSignature != nil {
+		return policy.WorkloadSignature.PreprocessingType.String()
 	}
 	return "unknown"
 }
