@@ -124,6 +124,13 @@ func (m *ConfigManager) GetIOPatternConfig() v1.IOPatternBasedConfig {
 	return m.config.Plugins.IOPatternBased
 }
 
+// GetKueueAwareConfig returns KueueAware plugin configuration
+func (m *ConfigManager) GetKueueAwareConfig() v1.KueueAwareConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.config.Plugins.KueueAware
+}
+
 // GetPreprocessingTypeConfig returns configuration for a specific preprocessing type
 func (m *ConfigManager) GetPreprocessingTypeConfig(typeName string) (v1.PreprocessingTypeConfig, bool) {
 	m.mu.RLock()

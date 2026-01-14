@@ -42,6 +42,11 @@ func getPluginWeight(pluginName string) int32 {
 			return int32(cfg.IOPatternBased.Weight)
 		}
 		return 3 // default
+	case "KueueAware":
+		if cfg.KueueAware.Weight > 0 {
+			return int32(cfg.KueueAware.Weight)
+		}
+		return 2 // default
 	default:
 		return 1
 	}
@@ -173,6 +178,13 @@ func CreateDefaultConfig() *SchedulerConfig {
 		// - Data expansion handling (0-20 points, configurable)
 		// - CSD offload capability (0-20 points, configurable)
 		{Plugin: plugin.NewIOPatternBased(cache, hostKubeClient), Weight: getPluginWeight("IOPatternBased")},
+
+		// KueueAware: Prefers nodes optimized for Kueue-managed workloads
+		// - Gang locality (0-30 points, configurable) - 같은 Gang 멤버 근접 배치
+		// - Queue priority (0-20 points, configurable) - Queue 우선순위 기반
+		// - Workload size (0-25 points, configurable) - 대규모 워크로드 여유 노드 선호
+		// - Network proximity (0-25 points, configurable) - Gang 멤버 네트워크 근접성
+		{Plugin: plugin.NewKueueAware(cache, hostKubeClient), Weight: getPluginWeight("KueueAware")},
 	}
 
 	// Reserve plugins
@@ -208,6 +220,14 @@ func CreateDefaultConfig() *SchedulerConfig {
 		"score_count", len(scorePlugins),
 		"reserve_count", len(reservePlugins),
 		"prebind_count", len(preBindPlugins))
+
+	// Log each score plugin for debugging
+	for i, pw := range scorePlugins {
+		logger.Info("[Score Plugin registered]",
+			"index", i,
+			"name", pw.Plugin.Name(),
+			"weight", pw.Weight)
+	}
 
 	return &SchedulerConfig{
 		InformerFactory: informerFactory,

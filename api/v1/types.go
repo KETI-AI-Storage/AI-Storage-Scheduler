@@ -43,6 +43,29 @@ type PluginsConfig struct {
 	DataLocalityAware DataLocalityAwareConfig `json:"dataLocalityAware,omitempty"`
 	StorageTierAware  StorageTierAwareConfig  `json:"storageTierAware,omitempty"`
 	IOPatternBased    IOPatternBasedConfig    `json:"ioPatternBased,omitempty"`
+	KueueAware        KueueAwareConfig        `json:"kueueAware,omitempty"`
+}
+
+// ============================================
+// KueueAware Plugin Configuration
+// Gang Scheduling 및 Kueue 연동 최적화
+// ============================================
+
+type KueueAwareConfig struct {
+	Enabled bool                   `json:"enabled,omitempty"`
+	Weight  int                    `json:"weight,omitempty"`
+	Scoring KueueAwareScoringConfig `json:"scoring,omitempty"`
+}
+
+type KueueAwareScoringConfig struct {
+	// Gang 멤버가 같은 노드에 있을 때 가산점
+	GangLocalityScoreMax int `json:"gangLocalityScoreMax,omitempty"`
+	// Queue 우선순위에 따른 점수
+	QueuePriorityScoreMax int `json:"queuePriorityScoreMax,omitempty"`
+	// Workload 크기 기반 점수 (큰 workload는 여유있는 노드 선호)
+	WorkloadSizeScoreMax int `json:"workloadSizeScoreMax,omitempty"`
+	// 같은 Gang의 다른 Pod와 네트워크 근접성 점수
+	NetworkProximityScoreMax int `json:"networkProximityScoreMax,omitempty"`
 }
 
 type DataLocalityAwareConfig struct {
@@ -193,6 +216,16 @@ func DefaultAIStorageConfigSpec() AIStorageConfigSpec {
 					IOOptimizationScoreMax:   20,
 					ExpansionScoreMax:        20,
 					CSDScoreMax:              20,
+				},
+			},
+			KueueAware: KueueAwareConfig{
+				Enabled: true,
+				Weight:  2,
+				Scoring: KueueAwareScoringConfig{
+					GangLocalityScoreMax:     30,
+					QueuePriorityScoreMax:    20,
+					WorkloadSizeScoreMax:     25,
+					NetworkProximityScoreMax: 25,
 				},
 			},
 		},

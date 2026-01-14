@@ -41,6 +41,14 @@ rules:
 - apiGroups: ["storage.k8s.io"]
   resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities"]
   verbs: ["get", "list", "watch"]
+# Kueue resources for KueueAware plugin
+- apiGroups: ["kueue.x-k8s.io"]
+  resources: ["workloads", "localqueues", "clusterqueues"]
+  verbs: ["get", "list", "watch"]
+# AIStorageConfig CRD for dynamic configuration
+- apiGroups: ["ai-storage.keti"]
+  resources: ["aistorageconfigs"]
+  verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
