@@ -131,6 +131,13 @@ func (m *ConfigManager) GetKueueAwareConfig() v1.KueueAwareConfig {
 	return m.config.Plugins.KueueAware
 }
 
+// GetPipelineStageAwareConfig returns PipelineStageAware plugin configuration
+func (m *ConfigManager) GetPipelineStageAwareConfig() v1.PipelineStageAwareConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.config.Plugins.PipelineStageAware
+}
+
 // GetPreprocessingTypeConfig returns configuration for a specific preprocessing type
 func (m *ConfigManager) GetPreprocessingTypeConfig(typeName string) (v1.PreprocessingTypeConfig, bool) {
 	m.mu.RLock()

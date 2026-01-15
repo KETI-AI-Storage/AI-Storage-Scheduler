@@ -40,10 +40,11 @@ type AIStorageConfigSpec struct {
 // ============================================
 
 type PluginsConfig struct {
-	DataLocalityAware DataLocalityAwareConfig `json:"dataLocalityAware,omitempty"`
-	StorageTierAware  StorageTierAwareConfig  `json:"storageTierAware,omitempty"`
-	IOPatternBased    IOPatternBasedConfig    `json:"ioPatternBased,omitempty"`
-	KueueAware        KueueAwareConfig        `json:"kueueAware,omitempty"`
+	DataLocalityAware  DataLocalityAwareConfig  `json:"dataLocalityAware,omitempty"`
+	StorageTierAware   StorageTierAwareConfig   `json:"storageTierAware,omitempty"`
+	IOPatternBased     IOPatternBasedConfig     `json:"ioPatternBased,omitempty"`
+	KueueAware         KueueAwareConfig         `json:"kueueAware,omitempty"`
+	PipelineStageAware PipelineStageAwareConfig `json:"pipelineStageAware,omitempty"`
 }
 
 // ============================================
@@ -52,9 +53,29 @@ type PluginsConfig struct {
 // ============================================
 
 type KueueAwareConfig struct {
-	Enabled bool                   `json:"enabled,omitempty"`
-	Weight  int                    `json:"weight,omitempty"`
+	Enabled bool                    `json:"enabled,omitempty"`
+	Weight  int                     `json:"weight,omitempty"`
 	Scoring KueueAwareScoringConfig `json:"scoring,omitempty"`
+}
+
+// ============================================
+// PipelineStageAware Plugin Configuration
+// Kubeflow/Argo Pipeline 스테이지 간 데이터 지역성 최적화
+// ============================================
+
+type PipelineStageAwareConfig struct {
+	Enabled bool                          `json:"enabled,omitempty"`
+	Weight  int                           `json:"weight,omitempty"`
+	Scoring PipelineStageAwareScoringConfig `json:"scoring,omitempty"`
+}
+
+type PipelineStageAwareScoringConfig struct {
+	// 이전 스테이지가 실행된 노드에 배치 시 가산점
+	DependencyLocalityScoreMax int `json:"dependencyLocalityScoreMax,omitempty"`
+	// 같은 파이프라인의 스텝들이 많이 실행된 노드 선호
+	PipelineCohesionScoreMax int `json:"pipelineCohesionScoreMax,omitempty"`
+	// I/O 패턴에 따른 노드 선택 점수
+	IOPatternScoreMax int `json:"ioPatternScoreMax,omitempty"`
 }
 
 type KueueAwareScoringConfig struct {
@@ -226,6 +247,15 @@ func DefaultAIStorageConfigSpec() AIStorageConfigSpec {
 					QueuePriorityScoreMax:    20,
 					WorkloadSizeScoreMax:     25,
 					NetworkProximityScoreMax: 25,
+				},
+			},
+			PipelineStageAware: PipelineStageAwareConfig{
+				Enabled: true,
+				Weight:  3,
+				Scoring: PipelineStageAwareScoringConfig{
+					DependencyLocalityScoreMax: 40,
+					PipelineCohesionScoreMax:   30,
+					IOPatternScoreMax:          30,
 				},
 			},
 		},

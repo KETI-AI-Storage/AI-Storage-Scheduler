@@ -47,6 +47,11 @@ func getPluginWeight(pluginName string) int32 {
 			return int32(cfg.KueueAware.Weight)
 		}
 		return 2 // default
+	case "PipelineStageAware":
+		if cfg.PipelineStageAware.Weight > 0 {
+			return int32(cfg.PipelineStageAware.Weight)
+		}
+		return 3 // default
 	default:
 		return 1
 	}
@@ -185,6 +190,12 @@ func CreateDefaultConfig() *SchedulerConfig {
 		// - Workload size (0-25 points, configurable) - 대규모 워크로드 여유 노드 선호
 		// - Network proximity (0-25 points, configurable) - Gang 멤버 네트워크 근접성
 		{Plugin: plugin.NewKueueAware(cache, hostKubeClient), Weight: getPluginWeight("KueueAware")},
+
+		// PipelineStageAware: Prefers nodes for pipeline stage data locality
+		// - Dependency locality (0-40 points, configurable) - 이전 스테이지 실행 노드 선호
+		// - Pipeline cohesion (0-30 points, configurable) - 같은 파이프라인 스텝 노드 선호
+		// - I/O pattern (0-30 points, configurable) - 워크로드 타입에 따른 노드 선택
+		{Plugin: plugin.NewPipelineStageAware(cache, hostKubeClient), Weight: getPluginWeight("PipelineStageAware")},
 	}
 
 	// Reserve plugins

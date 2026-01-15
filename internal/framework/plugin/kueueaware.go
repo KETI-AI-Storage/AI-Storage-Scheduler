@@ -553,7 +553,6 @@ func (k *KueueAware) calculateWorkloadSizeScore(nodeInfo *utils.NodeInfo, worklo
 		return 0
 	}
 
-	// 대규모 Gang (3개 이상)은 자원이 여유있는 노드 선호
 	isLargeGang := workloadInfo.TotalPodCount >= 3
 
 	if isLargeGang {
