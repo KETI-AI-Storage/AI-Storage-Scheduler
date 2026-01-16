@@ -189,6 +189,20 @@ func (f *frameworkImpl) RunPreScorePlugins(ctx context.Context, pod *v1.Pod, nod
 }
 
 func (f *frameworkImpl) RunScorePlugins(ctx context.Context, pod *v1.Pod, nodes []*v1.Node) (utils.PluginResultMap, *utils.Status) {
+	// Use default weights (no APOLLO override)
+	return f.RunScorePluginsWithAPOLLOWeights(ctx, pod, nodes, nil)
+}
+
+// KETI plugin names for APOLLO weight mapping
+var ketiPluginNames = map[string]bool{
+	"DataLocalityAware":  true,
+	"StorageTierAware":   true,
+	"IOPatternBased":     true,
+	"KueueAware":         true,
+	"PipelineStageAware": true,
+}
+
+func (f *frameworkImpl) RunScorePluginsWithAPOLLOWeights(ctx context.Context, pod *v1.Pod, nodes []*v1.Node, apolloWeights APOLLOPluginWeights) (utils.PluginResultMap, *utils.Status) {
 	result := utils.PluginResultMap{}
 
 	// Initialize results
@@ -200,18 +214,44 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, pod *v1.Pod, nodes 
 		}
 	}
 
+	// Log APOLLO weights if provided
+	if apolloWeights != nil {
+		logger.Info("[APOLLO-Weights] Using dynamic plugin weights from APOLLO",
+			"namespace", pod.Namespace, "pod", pod.Name,
+			"DLA", apolloWeights["DataLocalityAware"],
+			"STA", apolloWeights["StorageTierAware"],
+			"IOPB", apolloWeights["IOPatternBased"],
+			"KA", apolloWeights["KueueAware"],
+			"PSA", apolloWeights["PipelineStageAware"])
+	}
+
 	// Run all score plugins
 	for _, pw := range f.scorePlugins {
 		plugin := pw.Plugin
+		pluginName := plugin.Name()
 		weight := pw.Weight
 		if weight == 0 {
 			weight = 1
 		}
 
+		// Override weight with APOLLO weight for KETI plugins
+		weightSource := "default"
+		if apolloWeights != nil && ketiPluginNames[pluginName] {
+			if apolloWeight, ok := apolloWeights[pluginName]; ok {
+				// APOLLO weights are 0.0-1.0, convert to int32 (multiply by 10)
+				weight = int32(apolloWeight * 10)
+				if weight < 1 {
+					weight = 1 // Minimum weight
+				}
+				weightSource = "APOLLO"
+			}
+		}
+
 		logger.Info("[score-plugin] Running score plugin",
 			"namespace", pod.Namespace, "pod", pod.Name,
-			"plugin", plugin.Name(),
+			"plugin", pluginName,
 			"weight", weight,
+			"weight_source", weightSource,
 			"node_count", len(nodes))
 
 		for _, node := range nodes {
@@ -220,7 +260,7 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, pod *v1.Pod, nodes 
 				logger.Error("[score-plugin] Scoring failed",
 					fmt.Errorf("%s", status.Message()),
 					"namespace", pod.Namespace, "pod", pod.Name,
-					"plugin", plugin.Name(),
+					"plugin", pluginName,
 					"node", node.Name)
 				return nil, status
 			}
@@ -230,7 +270,7 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, pod *v1.Pod, nodes 
 
 			pluginResult := result[node.Name]
 			pluginResult.Scores = append(pluginResult.Scores, utils.PluginScore{
-				PluginName: plugin.Name(),
+				PluginName: pluginName,
 				Score:      weightedScore,
 			})
 			pluginResult.TotalNodeScore += int(weightedScore)
@@ -238,10 +278,11 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, pod *v1.Pod, nodes 
 
 			logger.Info("[score-plugin] Node scored",
 				"namespace", pod.Namespace, "pod", pod.Name,
-				"plugin", plugin.Name(),
+				"plugin", pluginName,
 				"node", node.Name,
 				"raw_score", score,
 				"weight", weight,
+				"weight_source", weightSource,
 				"weighted_score", weightedScore)
 		}
 	}

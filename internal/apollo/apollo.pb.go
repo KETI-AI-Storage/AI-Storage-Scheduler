@@ -483,6 +483,7 @@ type SchedulingPolicy struct {
 	AllowPreemption      bool                          `protobuf:"varint,10,opt,name=allow_preemption,json=allowPreemption,proto3" json:"allow_preemption,omitempty"`
 	AffinityRules        []*AffinityRule               `protobuf:"bytes,11,rep,name=affinity_rules,json=affinityRules,proto3" json:"affinity_rules,omitempty"`
 	Reason               string                        `protobuf:"bytes,12,opt,name=reason,proto3" json:"reason,omitempty"`
+	PluginWeights        *PluginWeights                `protobuf:"bytes,13,opt,name=plugin_weights,json=pluginWeights,proto3" json:"plugin_weights,omitempty"`
 	WorkloadSignature    *WorkloadSignatureInfo        `protobuf:"bytes,20,opt,name=workload_signature,json=workloadSignature,proto3" json:"workload_signature,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
@@ -602,11 +603,96 @@ func (x *SchedulingPolicy) GetReason() string {
 	return ""
 }
 
+func (x *SchedulingPolicy) GetPluginWeights() *PluginWeights {
+	if x != nil {
+		return x.PluginWeights
+	}
+	return nil
+}
+
 func (x *SchedulingPolicy) GetWorkloadSignature() *WorkloadSignatureInfo {
 	if x != nil {
 		return x.WorkloadSignature
 	}
 	return nil
+}
+
+// PluginWeights contains dynamic weights for KETI scoring plugins
+// Weights are 0.0-1.0, applied by scheduler to adjust plugin importance
+type PluginWeights struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	DataLocalityAware  float32                `protobuf:"fixed32,1,opt,name=data_locality_aware,json=dataLocalityAware,proto3" json:"data_locality_aware,omitempty"`    // DataLocalityAware plugin weight
+	StorageTierAware   float32                `protobuf:"fixed32,2,opt,name=storage_tier_aware,json=storageTierAware,proto3" json:"storage_tier_aware,omitempty"`       // StorageTierAware plugin weight
+	IoPatternBased     float32                `protobuf:"fixed32,3,opt,name=io_pattern_based,json=ioPatternBased,proto3" json:"io_pattern_based,omitempty"`             // IOPatternBased plugin weight
+	KueueAware         float32                `protobuf:"fixed32,4,opt,name=kueue_aware,json=kueueAware,proto3" json:"kueue_aware,omitempty"`                           // KueueAware plugin weight
+	PipelineStageAware float32                `protobuf:"fixed32,5,opt,name=pipeline_stage_aware,json=pipelineStageAware,proto3" json:"pipeline_stage_aware,omitempty"` // PipelineStageAware plugin weight
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *PluginWeights) Reset() {
+	*x = PluginWeights{}
+	mi := &file_apollo_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PluginWeights) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PluginWeights) ProtoMessage() {}
+
+func (x *PluginWeights) ProtoReflect() protoreflect.Message {
+	mi := &file_apollo_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PluginWeights.ProtoReflect.Descriptor instead.
+func (*PluginWeights) Descriptor() ([]byte, []int) {
+	return file_apollo_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *PluginWeights) GetDataLocalityAware() float32 {
+	if x != nil {
+		return x.DataLocalityAware
+	}
+	return 0
+}
+
+func (x *PluginWeights) GetStorageTierAware() float32 {
+	if x != nil {
+		return x.StorageTierAware
+	}
+	return 0
+}
+
+func (x *PluginWeights) GetIoPatternBased() float32 {
+	if x != nil {
+		return x.IoPatternBased
+	}
+	return 0
+}
+
+func (x *PluginWeights) GetKueueAware() float32 {
+	if x != nil {
+		return x.KueueAware
+	}
+	return 0
+}
+
+func (x *PluginWeights) GetPipelineStageAware() float32 {
+	if x != nil {
+		return x.PipelineStageAware
+	}
+	return 0
 }
 
 type WorkloadSignatureInfo struct {
@@ -632,7 +718,7 @@ type WorkloadSignatureInfo struct {
 
 func (x *WorkloadSignatureInfo) Reset() {
 	*x = WorkloadSignatureInfo{}
-	mi := &file_apollo_proto_msgTypes[2]
+	mi := &file_apollo_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -644,7 +730,7 @@ func (x *WorkloadSignatureInfo) String() string {
 func (*WorkloadSignatureInfo) ProtoMessage() {}
 
 func (x *WorkloadSignatureInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_apollo_proto_msgTypes[2]
+	mi := &file_apollo_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -657,7 +743,7 @@ func (x *WorkloadSignatureInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkloadSignatureInfo.ProtoReflect.Descriptor instead.
 func (*WorkloadSignatureInfo) Descriptor() ([]byte, []int) {
-	return file_apollo_proto_rawDescGZIP(), []int{2}
+	return file_apollo_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *WorkloadSignatureInfo) GetWorkloadType() WorkloadType {
@@ -776,7 +862,7 @@ type NodePreference struct {
 
 func (x *NodePreference) Reset() {
 	*x = NodePreference{}
-	mi := &file_apollo_proto_msgTypes[3]
+	mi := &file_apollo_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -788,7 +874,7 @@ func (x *NodePreference) String() string {
 func (*NodePreference) ProtoMessage() {}
 
 func (x *NodePreference) ProtoReflect() protoreflect.Message {
-	mi := &file_apollo_proto_msgTypes[3]
+	mi := &file_apollo_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -801,7 +887,7 @@ func (x *NodePreference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodePreference.ProtoReflect.Descriptor instead.
 func (*NodePreference) Descriptor() ([]byte, []int) {
-	return file_apollo_proto_rawDescGZIP(), []int{3}
+	return file_apollo_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *NodePreference) GetNodeName() string {
@@ -839,7 +925,7 @@ type ComputedResourceRequirements struct {
 
 func (x *ComputedResourceRequirements) Reset() {
 	*x = ComputedResourceRequirements{}
-	mi := &file_apollo_proto_msgTypes[4]
+	mi := &file_apollo_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -851,7 +937,7 @@ func (x *ComputedResourceRequirements) String() string {
 func (*ComputedResourceRequirements) ProtoMessage() {}
 
 func (x *ComputedResourceRequirements) ProtoReflect() protoreflect.Message {
-	mi := &file_apollo_proto_msgTypes[4]
+	mi := &file_apollo_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -864,7 +950,7 @@ func (x *ComputedResourceRequirements) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputedResourceRequirements.ProtoReflect.Descriptor instead.
 func (*ComputedResourceRequirements) Descriptor() ([]byte, []int) {
-	return file_apollo_proto_rawDescGZIP(), []int{4}
+	return file_apollo_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ComputedResourceRequirements) GetCpuCores() float64 {
@@ -923,7 +1009,7 @@ type StorageRequirements struct {
 
 func (x *StorageRequirements) Reset() {
 	*x = StorageRequirements{}
-	mi := &file_apollo_proto_msgTypes[5]
+	mi := &file_apollo_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -935,7 +1021,7 @@ func (x *StorageRequirements) String() string {
 func (*StorageRequirements) ProtoMessage() {}
 
 func (x *StorageRequirements) ProtoReflect() protoreflect.Message {
-	mi := &file_apollo_proto_msgTypes[5]
+	mi := &file_apollo_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -948,7 +1034,7 @@ func (x *StorageRequirements) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StorageRequirements.ProtoReflect.Descriptor instead.
 func (*StorageRequirements) Descriptor() ([]byte, []int) {
-	return file_apollo_proto_rawDescGZIP(), []int{5}
+	return file_apollo_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *StorageRequirements) GetStorageClass() StorageClass {
@@ -1005,7 +1091,7 @@ type SchedulingConstraint struct {
 
 func (x *SchedulingConstraint) Reset() {
 	*x = SchedulingConstraint{}
-	mi := &file_apollo_proto_msgTypes[6]
+	mi := &file_apollo_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1017,7 +1103,7 @@ func (x *SchedulingConstraint) String() string {
 func (*SchedulingConstraint) ProtoMessage() {}
 
 func (x *SchedulingConstraint) ProtoReflect() protoreflect.Message {
-	mi := &file_apollo_proto_msgTypes[6]
+	mi := &file_apollo_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1030,7 +1116,7 @@ func (x *SchedulingConstraint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchedulingConstraint.ProtoReflect.Descriptor instead.
 func (*SchedulingConstraint) Descriptor() ([]byte, []int) {
-	return file_apollo_proto_rawDescGZIP(), []int{6}
+	return file_apollo_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SchedulingConstraint) GetConstraintType() string {
@@ -1074,7 +1160,7 @@ type AffinityRule struct {
 
 func (x *AffinityRule) Reset() {
 	*x = AffinityRule{}
-	mi := &file_apollo_proto_msgTypes[7]
+	mi := &file_apollo_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1086,7 +1172,7 @@ func (x *AffinityRule) String() string {
 func (*AffinityRule) ProtoMessage() {}
 
 func (x *AffinityRule) ProtoReflect() protoreflect.Message {
-	mi := &file_apollo_proto_msgTypes[7]
+	mi := &file_apollo_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1099,7 +1185,7 @@ func (x *AffinityRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AffinityRule.ProtoReflect.Descriptor instead.
 func (*AffinityRule) Descriptor() ([]byte, []int) {
-	return file_apollo_proto_rawDescGZIP(), []int{7}
+	return file_apollo_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *AffinityRule) GetRuleType() string {
@@ -1152,7 +1238,7 @@ type SchedulingResult struct {
 
 func (x *SchedulingResult) Reset() {
 	*x = SchedulingResult{}
-	mi := &file_apollo_proto_msgTypes[8]
+	mi := &file_apollo_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1164,7 +1250,7 @@ func (x *SchedulingResult) String() string {
 func (*SchedulingResult) ProtoMessage() {}
 
 func (x *SchedulingResult) ProtoReflect() protoreflect.Message {
-	mi := &file_apollo_proto_msgTypes[8]
+	mi := &file_apollo_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1177,7 +1263,7 @@ func (x *SchedulingResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchedulingResult.ProtoReflect.Descriptor instead.
 func (*SchedulingResult) Descriptor() ([]byte, []int) {
-	return file_apollo_proto_rawDescGZIP(), []int{8}
+	return file_apollo_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SchedulingResult) GetRequestId() string {
@@ -1240,7 +1326,7 @@ type ReportResponse struct {
 
 func (x *ReportResponse) Reset() {
 	*x = ReportResponse{}
-	mi := &file_apollo_proto_msgTypes[9]
+	mi := &file_apollo_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1252,7 +1338,7 @@ func (x *ReportResponse) String() string {
 func (*ReportResponse) ProtoMessage() {}
 
 func (x *ReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_apollo_proto_msgTypes[9]
+	mi := &file_apollo_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1265,7 +1351,7 @@ func (x *ReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportResponse.ProtoReflect.Descriptor instead.
 func (*ReportResponse) Descriptor() ([]byte, []int) {
-	return file_apollo_proto_rawDescGZIP(), []int{9}
+	return file_apollo_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ReportResponse) GetSuccess() bool {
@@ -1306,7 +1392,7 @@ const file_apollo_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aA\n" +
 	"\x13PodAnnotationsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc1\x05\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xff\x05\n" +
 	"\x10SchedulingPolicy\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
@@ -1321,8 +1407,16 @@ const file_apollo_proto_rawDesc = "" +
 	"\x10allow_preemption\x18\n" +
 	" \x01(\bR\x0fallowPreemption\x12;\n" +
 	"\x0eaffinity_rules\x18\v \x03(\v2\x14.apollo.AffinityRuleR\raffinityRules\x12\x16\n" +
-	"\x06reason\x18\f \x01(\tR\x06reason\x12L\n" +
-	"\x12workload_signature\x18\x14 \x01(\v2\x1d.apollo.WorkloadSignatureInfoR\x11workloadSignature\"\xae\x05\n" +
+	"\x06reason\x18\f \x01(\tR\x06reason\x12<\n" +
+	"\x0eplugin_weights\x18\r \x01(\v2\x15.apollo.PluginWeightsR\rpluginWeights\x12L\n" +
+	"\x12workload_signature\x18\x14 \x01(\v2\x1d.apollo.WorkloadSignatureInfoR\x11workloadSignature\"\xea\x01\n" +
+	"\rPluginWeights\x12.\n" +
+	"\x13data_locality_aware\x18\x01 \x01(\x02R\x11dataLocalityAware\x12,\n" +
+	"\x12storage_tier_aware\x18\x02 \x01(\x02R\x10storageTierAware\x12(\n" +
+	"\x10io_pattern_based\x18\x03 \x01(\x02R\x0eioPatternBased\x12\x1f\n" +
+	"\vkueue_aware\x18\x04 \x01(\x02R\n" +
+	"kueueAware\x120\n" +
+	"\x14pipeline_stage_aware\x18\x05 \x01(\x02R\x12pipelineStageAware\"\xae\x05\n" +
 	"\x15WorkloadSignatureInfo\x129\n" +
 	"\rworkload_type\x18\x01 \x01(\x0e2\x14.apollo.WorkloadTypeR\fworkloadType\x12:\n" +
 	"\rcurrent_stage\x18\x02 \x01(\x0e2\x15.apollo.PipelineStageR\fcurrentStage\x120\n" +
@@ -1456,7 +1550,7 @@ func file_apollo_proto_rawDescGZIP() []byte {
 }
 
 var file_apollo_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_apollo_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_apollo_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_apollo_proto_goTypes = []any{
 	(SchedulingDecision)(0),              // 0: apollo.SchedulingDecision
 	(WorkloadType)(0),                    // 1: apollo.WorkloadType
@@ -1466,42 +1560,44 @@ var file_apollo_proto_goTypes = []any{
 	(PreprocessingType)(0),               // 5: apollo.PreprocessingType
 	(*SchedulingPolicyRequest)(nil),      // 6: apollo.SchedulingPolicyRequest
 	(*SchedulingPolicy)(nil),             // 7: apollo.SchedulingPolicy
-	(*WorkloadSignatureInfo)(nil),        // 8: apollo.WorkloadSignatureInfo
-	(*NodePreference)(nil),               // 9: apollo.NodePreference
-	(*ComputedResourceRequirements)(nil), // 10: apollo.ComputedResourceRequirements
-	(*StorageRequirements)(nil),          // 11: apollo.StorageRequirements
-	(*SchedulingConstraint)(nil),         // 12: apollo.SchedulingConstraint
-	(*AffinityRule)(nil),                 // 13: apollo.AffinityRule
-	(*SchedulingResult)(nil),             // 14: apollo.SchedulingResult
-	(*ReportResponse)(nil),               // 15: apollo.ReportResponse
-	nil,                                  // 16: apollo.SchedulingPolicyRequest.PodLabelsEntry
-	nil,                                  // 17: apollo.SchedulingPolicyRequest.PodAnnotationsEntry
+	(*PluginWeights)(nil),                // 8: apollo.PluginWeights
+	(*WorkloadSignatureInfo)(nil),        // 9: apollo.WorkloadSignatureInfo
+	(*NodePreference)(nil),               // 10: apollo.NodePreference
+	(*ComputedResourceRequirements)(nil), // 11: apollo.ComputedResourceRequirements
+	(*StorageRequirements)(nil),          // 12: apollo.StorageRequirements
+	(*SchedulingConstraint)(nil),         // 13: apollo.SchedulingConstraint
+	(*AffinityRule)(nil),                 // 14: apollo.AffinityRule
+	(*SchedulingResult)(nil),             // 15: apollo.SchedulingResult
+	(*ReportResponse)(nil),               // 16: apollo.ReportResponse
+	nil,                                  // 17: apollo.SchedulingPolicyRequest.PodLabelsEntry
+	nil,                                  // 18: apollo.SchedulingPolicyRequest.PodAnnotationsEntry
 }
 var file_apollo_proto_depIdxs = []int32{
-	16, // 0: apollo.SchedulingPolicyRequest.pod_labels:type_name -> apollo.SchedulingPolicyRequest.PodLabelsEntry
-	17, // 1: apollo.SchedulingPolicyRequest.pod_annotations:type_name -> apollo.SchedulingPolicyRequest.PodAnnotationsEntry
+	17, // 0: apollo.SchedulingPolicyRequest.pod_labels:type_name -> apollo.SchedulingPolicyRequest.PodLabelsEntry
+	18, // 1: apollo.SchedulingPolicyRequest.pod_annotations:type_name -> apollo.SchedulingPolicyRequest.PodAnnotationsEntry
 	0,  // 2: apollo.SchedulingPolicy.decision:type_name -> apollo.SchedulingDecision
-	9,  // 3: apollo.SchedulingPolicy.node_preferences:type_name -> apollo.NodePreference
-	10, // 4: apollo.SchedulingPolicy.resource_requirements:type_name -> apollo.ComputedResourceRequirements
-	11, // 5: apollo.SchedulingPolicy.storage_requirements:type_name -> apollo.StorageRequirements
-	12, // 6: apollo.SchedulingPolicy.constraints:type_name -> apollo.SchedulingConstraint
-	13, // 7: apollo.SchedulingPolicy.affinity_rules:type_name -> apollo.AffinityRule
-	8,  // 8: apollo.SchedulingPolicy.workload_signature:type_name -> apollo.WorkloadSignatureInfo
-	1,  // 9: apollo.WorkloadSignatureInfo.workload_type:type_name -> apollo.WorkloadType
-	2,  // 10: apollo.WorkloadSignatureInfo.current_stage:type_name -> apollo.PipelineStage
-	3,  // 11: apollo.WorkloadSignatureInfo.io_pattern:type_name -> apollo.IOPattern
-	5,  // 12: apollo.WorkloadSignatureInfo.preprocessing_type:type_name -> apollo.PreprocessingType
-	4,  // 13: apollo.StorageRequirements.storage_class:type_name -> apollo.StorageClass
-	3,  // 14: apollo.StorageRequirements.expected_io_pattern:type_name -> apollo.IOPattern
-	6,  // 15: apollo.SchedulingPolicyService.GetSchedulingPolicy:input_type -> apollo.SchedulingPolicyRequest
-	14, // 16: apollo.SchedulingPolicyService.ReportSchedulingResult:input_type -> apollo.SchedulingResult
-	7,  // 17: apollo.SchedulingPolicyService.GetSchedulingPolicy:output_type -> apollo.SchedulingPolicy
-	15, // 18: apollo.SchedulingPolicyService.ReportSchedulingResult:output_type -> apollo.ReportResponse
-	17, // [17:19] is the sub-list for method output_type
-	15, // [15:17] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	10, // 3: apollo.SchedulingPolicy.node_preferences:type_name -> apollo.NodePreference
+	11, // 4: apollo.SchedulingPolicy.resource_requirements:type_name -> apollo.ComputedResourceRequirements
+	12, // 5: apollo.SchedulingPolicy.storage_requirements:type_name -> apollo.StorageRequirements
+	13, // 6: apollo.SchedulingPolicy.constraints:type_name -> apollo.SchedulingConstraint
+	14, // 7: apollo.SchedulingPolicy.affinity_rules:type_name -> apollo.AffinityRule
+	8,  // 8: apollo.SchedulingPolicy.plugin_weights:type_name -> apollo.PluginWeights
+	9,  // 9: apollo.SchedulingPolicy.workload_signature:type_name -> apollo.WorkloadSignatureInfo
+	1,  // 10: apollo.WorkloadSignatureInfo.workload_type:type_name -> apollo.WorkloadType
+	2,  // 11: apollo.WorkloadSignatureInfo.current_stage:type_name -> apollo.PipelineStage
+	3,  // 12: apollo.WorkloadSignatureInfo.io_pattern:type_name -> apollo.IOPattern
+	5,  // 13: apollo.WorkloadSignatureInfo.preprocessing_type:type_name -> apollo.PreprocessingType
+	4,  // 14: apollo.StorageRequirements.storage_class:type_name -> apollo.StorageClass
+	3,  // 15: apollo.StorageRequirements.expected_io_pattern:type_name -> apollo.IOPattern
+	6,  // 16: apollo.SchedulingPolicyService.GetSchedulingPolicy:input_type -> apollo.SchedulingPolicyRequest
+	15, // 17: apollo.SchedulingPolicyService.ReportSchedulingResult:input_type -> apollo.SchedulingResult
+	7,  // 18: apollo.SchedulingPolicyService.GetSchedulingPolicy:output_type -> apollo.SchedulingPolicy
+	16, // 19: apollo.SchedulingPolicyService.ReportSchedulingResult:output_type -> apollo.ReportResponse
+	18, // [18:20] is the sub-list for method output_type
+	16, // [16:18] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_apollo_proto_init() }
@@ -1515,7 +1611,7 @@ func file_apollo_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_apollo_proto_rawDesc), len(file_apollo_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

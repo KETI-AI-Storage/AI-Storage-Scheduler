@@ -110,6 +110,10 @@ type PostBindPlugin interface {
 	PostBind(ctx context.Context, pod *v1.Pod, nodeName string)
 }
 
+// APOLLOPluginWeights contains plugin weights from APOLLO for dynamic scheduling
+// Keys are plugin names: DataLocalityAware, StorageTierAware, IOPatternBased, KueueAware, PipelineStageAware
+type APOLLOPluginWeights map[string]float32
+
 // Framework is the interface for the scheduling framework.
 type Framework interface {
 	// RunPreFilterPlugins runs the PreFilter plugins.
@@ -122,6 +126,9 @@ type Framework interface {
 	RunPreScorePlugins(ctx context.Context, pod *v1.Pod, nodes []*v1.Node) *utils.Status
 	// RunScorePlugins runs the Score plugins.
 	RunScorePlugins(ctx context.Context, pod *v1.Pod, nodes []*v1.Node) (utils.PluginResultMap, *utils.Status)
+	// RunScorePluginsWithAPOLLOWeights runs the Score plugins with dynamic APOLLO weights.
+	// APOLLO weights override default weights for KETI plugins (DataLocalityAware, StorageTierAware, etc.)
+	RunScorePluginsWithAPOLLOWeights(ctx context.Context, pod *v1.Pod, nodes []*v1.Node, apolloWeights APOLLOPluginWeights) (utils.PluginResultMap, *utils.Status)
 	// RunReservePlugins runs the Reserve plugins.
 	RunReservePlugins(ctx context.Context, pod *v1.Pod, nodeName string) *utils.Status
 	// RunUnreservePlugins runs the Unreserve methods.

@@ -32,6 +32,7 @@ type ScheduleResult struct {
 	FeasibleNodes   int             // The number of nodes out of the evaluated ones that fit the pod.
 	nominatingInfo  *NominatingInfo // The nominating info for scheduling cycle.
 	PluginResultMap utils.PluginResultMap
+	PolicyRequestID string          // APOLLO policy request ID for feedback
 }
 
 func NewScheduleResult(nodeInfoMap map[string]*utils.NodeInfo) ScheduleResult {

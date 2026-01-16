@@ -1,0 +1,42 @@
+###############################################################################
+# Argo CD Application for KETI AI Storage Scheduler
+# GPU-aware Custom Kubernetes Scheduler with APOLLO Integration
+###############################################################################
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keti-ai-storage-scheduler
+  namespace: argocd
+  labels:
+    project: keti-ai-storage
+    component: scheduler
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/KETI-AI-Storage/keti-platform.git
+    targetRevision: main
+    path: ai-storage-scheduler/deployments
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keti
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

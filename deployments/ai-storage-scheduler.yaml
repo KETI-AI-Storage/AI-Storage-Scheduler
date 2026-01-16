@@ -96,6 +96,9 @@ spec:
         - name: ai-storage-scheduler
           image: ketidevit2/keti-ai-storage-scheduler:latest
           imagePullPolicy: IfNotPresent
+          env:
+            - name: APOLLO_ENDPOINT
+              value: "scheduling-policy-engine.apollo.svc.cluster.local:50054"
           resources:
             limits:
               memory: "500Mi"

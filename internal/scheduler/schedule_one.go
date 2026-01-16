@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	internalqueue "keti/ai-storage-scheduler/internal/backend/queue"
+	"keti/ai-storage-scheduler/internal/apollo"
 	logger "keti/ai-storage-scheduler/internal/backend/log"
+	internalqueue "keti/ai-storage-scheduler/internal/backend/queue"
 	framework "keti/ai-storage-scheduler/internal/framework"
 	utils "keti/ai-storage-scheduler/internal/framework/utils"
 
@@ -33,7 +34,7 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 		return
 	}
 
-	logger.Info("[scheduling] Starting scheduling cycle", 
+	logger.Info("[scheduling] Starting scheduling cycle",
 		"namespace", pod.Namespace, "pod", pod.Name)
 
 	start := time.Now()
@@ -49,7 +50,7 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	}
 
 	logger.Info("[scheduling] Scheduling cycle succeeded",
-		"namespace", pod.Namespace, "pod", pod.Name, 
+		"namespace", pod.Namespace, "pod", pod.Name,
 		"node", scheduleResult.SuggestedHost,
 		"duration_ms", time.Since(start).Milliseconds())
 
@@ -65,9 +66,9 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 				"namespace", pod.Namespace, "pod", pod.Name)
 			return
 		}
-		
+
 		logger.Info("[scheduling] Pod successfully bound",
-			"namespace", pod.Namespace, "pod", pod.Name, 
+			"namespace", pod.Namespace, "pod", pod.Name,
 			"node", scheduleResult.SuggestedHost)
 	}()
 }
@@ -131,6 +132,7 @@ func (sched *Scheduler) bindingCycle(
 	start time.Time) *utils.Status {
 
 	assumedPod := assumedPodInfo.Pod
+	durationMs := time.Since(start).Milliseconds()
 
 	logger.Info("[binding] Starting binding cycle",
 		"namespace", assumedPod.Namespace, "pod", assumedPod.Name,
@@ -140,17 +142,103 @@ func (sched *Scheduler) bindingCycle(
 	if err != nil {
 		logger.Error("[binding] Binding failed", err,
 			"namespace", assumedPod.Namespace, "pod", assumedPod.Name)
+
+		// Report failure to APOLLO for RL feedback
+		sched.reportSchedulingResultToAPOLLO(
+			scheduleResult.PolicyRequestID,
+			assumedPod.Namespace,
+			assumedPod.Name,
+			scheduleResult.SuggestedHost,
+			false,
+			err.Error(),
+			durationMs,
+		)
+
 		return utils.AsStatus(err)
 	}
 
 	sched.SchedulingQueue.Done(assumedPod.UID)
 
+	// Report success to APOLLO for RL feedback
+	sched.reportSchedulingResultToAPOLLO(
+		scheduleResult.PolicyRequestID,
+		assumedPod.Namespace,
+		assumedPod.Name,
+		scheduleResult.SuggestedHost,
+		true,
+		"",
+		durationMs,
+	)
+
 	return nil
+}
+
+// reportSchedulingResultToAPOLLO sends scheduling result feedback to APOLLO for RL training
+func (sched *Scheduler) reportSchedulingResultToAPOLLO(requestID, namespace, podName, node string, success bool, failureReason string, durationMs int64) {
+	if requestID == "" {
+		logger.Info("[APOLLO-Feedback] Skipping feedback - no request ID (policy from cache/fallback)")
+		return
+	}
+
+	client := apollo.GetClient()
+	if !client.IsConnected() {
+		logger.Warn("[APOLLO-Feedback] Cannot report result - not connected to APOLLO")
+		return
+	}
+
+	err := client.ReportSchedulingResult(requestID, namespace, podName, node, success, failureReason, durationMs)
+	if err != nil {
+		logger.Warn("[APOLLO-Feedback] Failed to report scheduling result",
+			"request_id", requestID, "error", err.Error())
+	} else {
+		logger.Info("[APOLLO-Feedback] Scheduling result reported to APOLLO",
+			"request_id", requestID, "success", success, "node", node, "duration_ms", durationMs)
+	}
 }
 
 func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework, pod *v1.Pod) (result ScheduleResult, err error) {
 	if sched.Cache.NodeCount() == 0 {
 		return result, ErrNoNodesAvailable
+	}
+
+	// Get scheduling policy from APOLLO and capture request_id for feedback
+	var policyRequestID string
+	var apolloWeights framework.APOLLOPluginWeights
+	apolloClient := apollo.GetClient()
+	if apolloClient.IsConnected() {
+		policy, policyErr := apolloClient.GetSchedulingPolicy(
+			pod.Namespace,
+			pod.Name,
+			string(pod.UID),
+			pod.Labels,
+			pod.Annotations,
+		)
+		if policyErr == nil && policy != nil {
+			policyRequestID = policy.GetRequestId()
+
+			// Extract plugin weights from APOLLO policy
+			if weights := policy.GetPluginWeights(); weights != nil {
+				apolloWeights = framework.APOLLOPluginWeights{
+					"DataLocalityAware":  weights.GetDataLocalityAware(),
+					"StorageTierAware":   weights.GetStorageTierAware(),
+					"IOPatternBased":     weights.GetIoPatternBased(),
+					"KueueAware":         weights.GetKueueAware(),
+					"PipelineStageAware": weights.GetPipelineStageAware(),
+				}
+				logger.Info("[APOLLO] Plugin weights retrieved",
+					"namespace", pod.Namespace, "pod", pod.Name,
+					"request_id", policyRequestID,
+					"DLA", apolloWeights["DataLocalityAware"],
+					"STA", apolloWeights["StorageTierAware"],
+					"IOPB", apolloWeights["IOPatternBased"],
+					"KA", apolloWeights["KueueAware"],
+					"PSA", apolloWeights["PipelineStageAware"])
+			} else {
+				logger.Info("[APOLLO] Policy retrieved (no weights)",
+					"namespace", pod.Namespace, "pod", pod.Name,
+					"request_id", policyRequestID)
+			}
+		}
 	}
 
 	// Check if pod requests GPU
@@ -163,7 +251,7 @@ func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework
 		}
 		logger.Info("[scheduling] Pod requests GPU resources",
 			"namespace", pod.Namespace, "pod", pod.Name, "gpu_count", gpuRequest)
-		
+
 		// Refresh metrics older than 60 seconds
 		sched.refreshStaleGPUMetrics(ctx, 60000)
 	}
@@ -172,17 +260,18 @@ func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework
 	if nodes == nil {
 		return result, fmt.Errorf("no nodes available")
 	}
-	
+
 	logger.Info("[scheduling] Starting pod scheduling",
 		"namespace", pod.Namespace, "pod", pod.Name,
 		"total_nodes", len(nodes))
-	
+
 	scheduleResult := NewScheduleResult(nodes)
+	scheduleResult.PolicyRequestID = policyRequestID
 
 	// Filter phase
 	logger.Info("[filter] Running filter plugins",
 		"namespace", pod.Namespace, "pod", pod.Name)
-	
+
 	err = sched.runFilterPlugin(ctx, fwk, pod, &scheduleResult)
 	if err != nil {
 		return result, err
@@ -216,8 +305,8 @@ func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework
 	logger.Info("[score] Running score plugins",
 		"namespace", pod.Namespace, "pod", pod.Name,
 		"feasible_nodes", scheduleResult.FeasibleNodes)
-	
-	err = sched.runScorePlugin(ctx, fwk, pod, &scheduleResult)
+
+	err = sched.runScorePlugin(ctx, fwk, pod, &scheduleResult, apolloWeights)
 	if err != nil {
 		return result, err
 	}
@@ -265,11 +354,11 @@ func (sched *Scheduler) runFilterPlugin(ctx context.Context, fwk framework.Frame
 	return nil
 }
 
-func (sched *Scheduler) runScorePlugin(ctx context.Context, fwk framework.Framework, pod *v1.Pod, scheduleResult *ScheduleResult) error {
+func (sched *Scheduler) runScorePlugin(ctx context.Context, fwk framework.Framework, pod *v1.Pod, scheduleResult *ScheduleResult, apolloWeights framework.APOLLOPluginWeights) error {
 	// Get list of feasible nodes
 	feasibleNodes := []*v1.Node{}
 	feasibleNodeNames := []string{}
-	
+
 	for nodeName, pr := range scheduleResult.PluginResultMap {
 		if !pr.IsFiltered {
 			if nodeInfo := sched.Cache.Nodes()[nodeName]; nodeInfo != nil && nodeInfo.Node() != nil {
@@ -287,8 +376,19 @@ func (sched *Scheduler) runScorePlugin(ctx context.Context, fwk framework.Framew
 		"namespace", pod.Namespace, "pod", pod.Name,
 		"nodes", feasibleNodeNames)
 
-	// Run score plugins
-	scores, status := fwk.RunScorePlugins(ctx, pod, feasibleNodes)
+	// Run score plugins with APOLLO weights if available
+	var scores utils.PluginResultMap
+	var status *utils.Status
+
+	if apolloWeights != nil {
+		logger.Info("[score] Using APOLLO dynamic weights",
+			"namespace", pod.Namespace, "pod", pod.Name,
+			"weights", apolloWeights)
+		scores, status = fwk.RunScorePluginsWithAPOLLOWeights(ctx, pod, feasibleNodes, apolloWeights)
+	} else {
+		scores, status = fwk.RunScorePlugins(ctx, pod, feasibleNodes)
+	}
+
 	if !status.IsSuccess() {
 		return fmt.Errorf("scoring failed: %s", status.Message())
 	}
@@ -299,7 +399,7 @@ func (sched *Scheduler) runScorePlugin(ctx context.Context, fwk framework.Framew
 			existing.Scores = score.Scores
 			existing.TotalNodeScore = score.TotalNodeScore
 			scheduleResult.PluginResultMap[nodeName] = existing
-			
+
 			// Log individual node scores
 			logger.Info("[score] Node scored",
 				"namespace", pod.Namespace, "pod", pod.Name,
