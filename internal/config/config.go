@@ -52,6 +52,11 @@ func getPluginWeight(pluginName string) int32 {
 			return int32(cfg.PipelineStageAware.Weight)
 		}
 		return 3 // default
+	case "CSIStorageAware":
+		if cfg.CSIStorageAware.Weight > 0 {
+			return int32(cfg.CSIStorageAware.Weight)
+		}
+		return 2 // default
 	default:
 		return 1
 	}
@@ -117,6 +122,7 @@ func CreateDefaultConfig() *SchedulerConfig {
 		plugin.NewDataLocalityAware(cache, hostKubeClient), // Filters nodes without PVC access
 		plugin.NewStorageTierAware(cache, hostKubeClient),  // Filters nodes without required storage tier
 		plugin.NewIOPatternBased(cache, hostKubeClient),    // Filters nodes without CSD for CSD-required workloads
+		plugin.NewCSIStorageAware(cache, hostKubeClient),   // Filters nodes without required CSI driver or capacity
 	}
 
 	// PostFilter plugins (for preemption)
@@ -196,6 +202,13 @@ func CreateDefaultConfig() *SchedulerConfig {
 		// - Pipeline cohesion (0-30 points, configurable) - 같은 파이프라인 스텝 노드 선호
 		// - I/O pattern (0-30 points, configurable) - 워크로드 타입에 따른 노드 선택
 		{Plugin: plugin.NewPipelineStageAware(cache, hostKubeClient), Weight: getPluginWeight("PipelineStageAware")},
+
+		// CSIStorageAware: Prefers nodes with CSI storage capacity and driver availability
+		// - CSI storage capacity (0-40 points) - CSIStorageCapacity 가용 용량 기반
+		// - Volume headroom (0-30 points) - CSINode 드라이버 볼륨 여유분
+		// - Topology matching (0-30 points) - CSI 토폴로지 키 매칭
+		// 조건부: Pod에 PVC가 없으면 중립 점수(50)
+		{Plugin: plugin.NewCSIStorageAware(cache, hostKubeClient), Weight: getPluginWeight("CSIStorageAware")},
 	}
 
 	// Reserve plugins

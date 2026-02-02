@@ -45,6 +45,7 @@ type PluginsConfig struct {
 	IOPatternBased     IOPatternBasedConfig     `json:"ioPatternBased,omitempty"`
 	KueueAware         KueueAwareConfig         `json:"kueueAware,omitempty"`
 	PipelineStageAware PipelineStageAwareConfig `json:"pipelineStageAware,omitempty"`
+	CSIStorageAware    CSIStorageAwareConfig    `json:"csiStorageAware,omitempty"`
 }
 
 // ============================================
@@ -127,6 +128,26 @@ type IOPatternBasedScoringConfig struct {
 	IOOptimizationScoreMax   int `json:"ioOptimizationScoreMax,omitempty"`
 	ExpansionScoreMax        int `json:"expansionScoreMax,omitempty"`
 	CSDScoreMax              int `json:"csdScoreMax,omitempty"`
+}
+
+// ============================================
+// CSIStorageAware Plugin Configuration
+// CSI (Container Storage Interface) 리소스 기반 스케줄링
+// ============================================
+
+type CSIStorageAwareConfig struct {
+	Enabled bool                          `json:"enabled,omitempty"`
+	Weight  int                           `json:"weight,omitempty"`
+	Scoring CSIStorageAwareScoringConfig  `json:"scoring,omitempty"`
+}
+
+type CSIStorageAwareScoringConfig struct {
+	// CSI 스토리지 가용 용량 기반 점수 (CSIStorageCapacity)
+	CapacityScoreMax int `json:"capacityScoreMax,omitempty"`
+	// CSI 드라이버 볼륨 수 여유분 점수 (CSINode)
+	VolumeHeadroomScoreMax int `json:"volumeHeadroomScoreMax,omitempty"`
+	// CSI 토폴로지 매칭 점수 (CSINode topology keys)
+	TopologyScoreMax int `json:"topologyScoreMax,omitempty"`
 }
 
 // ============================================
@@ -256,6 +277,15 @@ func DefaultAIStorageConfigSpec() AIStorageConfigSpec {
 					DependencyLocalityScoreMax: 40,
 					PipelineCohesionScoreMax:   30,
 					IOPatternScoreMax:          30,
+				},
+			},
+			CSIStorageAware: CSIStorageAwareConfig{
+				Enabled: true,
+				Weight:  2,
+				Scoring: CSIStorageAwareScoringConfig{
+					CapacityScoreMax:       40,
+					VolumeHeadroomScoreMax: 30,
+					TopologyScoreMax:       30,
 				},
 			},
 		},

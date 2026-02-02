@@ -138,6 +138,13 @@ func (m *ConfigManager) GetPipelineStageAwareConfig() v1.PipelineStageAwareConfi
 	return m.config.Plugins.PipelineStageAware
 }
 
+// GetCSIStorageAwareConfig returns CSIStorageAware plugin configuration
+func (m *ConfigManager) GetCSIStorageAwareConfig() v1.CSIStorageAwareConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.config.Plugins.CSIStorageAware
+}
+
 // GetPreprocessingTypeConfig returns configuration for a specific preprocessing type
 func (m *ConfigManager) GetPreprocessingTypeConfig(typeName string) (v1.PreprocessingTypeConfig, bool) {
 	m.mu.RLock()
@@ -299,6 +306,12 @@ func (m *ConfigManager) applyDefaults(config v1.AIStorageConfigSpec) v1.AIStorag
 	}
 	if config.Plugins.IOPatternBased.Scoring.ResourceMatchScoreMax == 0 {
 		config.Plugins.IOPatternBased.Scoring = defaults.Plugins.IOPatternBased.Scoring
+	}
+	if config.Plugins.CSIStorageAware.Weight == 0 {
+		config.Plugins.CSIStorageAware.Weight = defaults.Plugins.CSIStorageAware.Weight
+	}
+	if config.Plugins.CSIStorageAware.Scoring.CapacityScoreMax == 0 {
+		config.Plugins.CSIStorageAware.Scoring = defaults.Plugins.CSIStorageAware.Scoring
 	}
 
 	// Apply preprocessing type defaults

@@ -200,6 +200,7 @@ var ketiPluginNames = map[string]bool{
 	"IOPatternBased":     true,
 	"KueueAware":         true,
 	"PipelineStageAware": true,
+	"CSIStorageAware":    true,
 }
 
 func (f *frameworkImpl) RunScorePluginsWithAPOLLOWeights(ctx context.Context, pod *v1.Pod, nodes []*v1.Node, apolloWeights APOLLOPluginWeights) (utils.PluginResultMap, *utils.Status) {
